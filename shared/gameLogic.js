@@ -359,7 +359,7 @@ function emptyUnoMissed(n) {
 }
 
 export function applyCallUno(state, playerIndex) {
-  if (handAsArray(state.hands[playerIndex]).length !== 1) {
+  if (handAsArray(state.hands[playerIndex]).length !== 2) {
     return state;
   }
   const n = getPlayerCount(state);
@@ -373,31 +373,30 @@ export function applyCallUno(state, playerIndex) {
   };
 }
 
-/** Close the UNO call window when another player acts. */
+/** Close another player's pending pre-call only after their hand changes away from 2 cards. */
 function closeUnoWindowForOtherPlayer(state, actingPlayerIndex) {
   const pending = state.unoPending;
   if (!pending || pending.playerIndex === actingPlayerIndex) {
     return state;
   }
-  const n = getPlayerCount(state);
-  const unoMissed = state.unoMissed ? [...state.unoMissed] : emptyUnoMissed(n);
-  if (!pending.called) {
-    unoMissed[pending.playerIndex] = true;
-  }
-  return { ...state, unoPending: null, unoMissed };
-}
-
-function setUnoPendingIfOneCard(state, playerIndex) {
-  if (handAsArray(state.hands[playerIndex]).length !== 1) {
+  if (handAsArray(state.hands[pending.playerIndex]).length === 2) {
     return state;
   }
+  return { ...state, unoPending: null };
+}
+
+function setMissedUnoIfNoPreCall(state, playerIndex) {
   const n = getPlayerCount(state);
   const unoMissed = state.unoMissed ? [...state.unoMissed] : emptyUnoMissed(n);
-  unoMissed[playerIndex] = false;
+  const calledBeforePlay =
+    state.unoPending?.playerIndex === playerIndex && state.unoPending.called;
+  if (!calledBeforePlay) {
+    unoMissed[playerIndex] = true;
+  }
   return {
     ...state,
     unoMissed,
-    unoPending: { playerIndex, called: false },
+    unoPending: state.unoPending?.playerIndex === playerIndex ? null : state.unoPending,
   };
 }
 
@@ -405,7 +404,7 @@ function syncUnoStateForHandSize(state, playerIndex) {
   const len = handAsArray(state.hands[playerIndex]).length;
   const n = getPlayerCount(state);
   const unoMissed = state.unoMissed ? [...state.unoMissed] : emptyUnoMissed(n);
-  if (len > 1) {
+  if (len > 2) {
     unoMissed[playerIndex] = false;
     return {
       ...state,
@@ -413,42 +412,42 @@ function syncUnoStateForHandSize(state, playerIndex) {
       unoPending: state.unoPending?.playerIndex === playerIndex ? null : state.unoPending,
     };
   }
+  if (len === 2) {
+    return {
+      ...state,
+      unoMissed,
+    };
+  }
   if (len === 1) {
-    return setUnoPendingIfOneCard(state, playerIndex);
+    return setMissedUnoIfNoPreCall(state, playerIndex);
   }
   return state;
 }
 
-/** When a player's turn ends, resolve UNO call / missed-call flags. */
+/** When a player's turn ends, close successful UNO pre-calls after they reach 1 card. */
 function endPlayerTurn(state, leavingPlayer) {
   const n = getPlayerCount(state);
   const unoMissed = state.unoMissed ? [...state.unoMissed] : emptyUnoMissed(n);
   let unoPending = state.unoPending;
-  const hadMissedFromBefore = unoMissed[leavingPlayer];
 
-  if (unoPending?.playerIndex === leavingPlayer) {
-    if (!unoPending.called) {
-      unoMissed[leavingPlayer] = true;
-    } else {
-      unoPending = null;
-    }
-  } else if (hadMissedFromBefore && handAsArray(state.hands[leavingPlayer]).length > 0) {
-    unoMissed[leavingPlayer] = false;
+  if (
+    unoPending?.playerIndex === leavingPlayer &&
+    unoPending.called &&
+    handAsArray(state.hands[leavingPlayer]).length !== 2
+  ) {
+    unoPending = null;
   }
 
   return { ...state, unoPending, unoMissed };
 }
 
 export function needsUnoCall(state, playerIndex) {
-  if (handAsArray(state.hands[playerIndex]).length !== 1 || state.winner !== null) {
+  if (handAsArray(state.hands[playerIndex]).length !== 2 || state.winner !== null) {
     return false;
   }
   const pending = state.unoPending;
   if (pending?.playerIndex === playerIndex && pending.called) {
     return false;
-  }
-  if (pending?.playerIndex === playerIndex && !pending.called) {
-    return true;
   }
   return !state.unoMissed?.[playerIndex];
 }
@@ -534,6 +533,14 @@ function appendDrawMove(moves, state) {
 }
 
 export function getValidMoves(state, playerIndex) {
+  if (
+    state.currentPlayer === playerIndex &&
+    state.unoMissed?.[playerIndex] &&
+    handAsArray(state.hands[playerIndex]).length > 0
+  ) {
+    return [{ type: "draw", amount: 2, unoPenalty: true }];
+  }
+
   const hand = handAsArray(state.hands[playerIndex]);
   const playable = hand
     .map((card, cardIndex) => ({ type: "play", cardIndex, card }))
@@ -594,6 +601,11 @@ export function applyDraw(state, playerIndex, amount) {
     penaltyAnchorColor: null,
     mayPassAfterDraw: false,
   };
+  if (base.unoMissed?.[playerIndex]) {
+    const unoMissed = [...base.unoMissed];
+    unoMissed[playerIndex] = false;
+    afterDraw = { ...afterDraw, unoMissed };
+  }
   afterDraw = syncUnoStateForHandSize(afterDraw, playerIndex);
 
   if (forceEndFromPenalty) {

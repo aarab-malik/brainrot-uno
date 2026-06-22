@@ -39,12 +39,16 @@ export default function GameTable({
   onColorChoice,
   onNewGame,
   onPlayAgain,
+  onRestartSameRules,
+  onChangeRules,
   onCallUno,
   newGameLabel = "New Game",
+  canManageGameEnd = true,
   showWinnerModal = true,
   isSpectator = false,
 }) {
   const handlePlayAgain = onPlayAgain ?? onNewGame;
+  const handleRestartSameRules = onRestartSameRules ?? handlePlayAgain;
   const isHumanCardHidden = (index) =>
     hidden?.type === "human-card" && hidden.index === index;
 
@@ -69,7 +73,8 @@ export default function GameTable({
   const showUnoBtn =
     !isSpectator &&
     state.winner === null &&
-    humanCards.length === 1 &&
+    isMyTurn &&
+    humanCards.length === 2 &&
     needsUnoCall(state, humanPlayer) &&
     typeof onCallUno === "function";
 
@@ -220,6 +225,18 @@ export default function GameTable({
               {humanName}
               {isMyTurn ? <span className="turn-pip"> · Your turn</span> : null}
             </div>
+            {showEndTurnBtn ? (
+              <div className="human-end-turn-wrap">
+                <button
+                  type="button"
+                  className="end-turn-btn end-turn-btn-prominent"
+                  onClick={onEndTurn}
+                  disabled={isAnimating}
+                >
+                  End Turn
+                </button>
+              </div>
+            ) : null}
             <div className="human-play-row">
               {showUnoBtn ? (
                 <button
@@ -263,11 +280,6 @@ export default function GameTable({
                     disabled={isAnimating || !canPenaltyDraw}
                   >
                     Draw +{penaltyDrawAmount}
-                  </button>
-                ) : null}
-                {showEndTurnBtn ? (
-                  <button type="button" className="end-turn-btn" onClick={onEndTurn} disabled={isAnimating}>
-                    End Turn
                   </button>
                 ) : null}
                 <span className="draw-count-label">Draw · {state.drawPile.length}</span>
@@ -319,12 +331,36 @@ export default function GameTable({
       {colorPicker ? <WildColorDpad onPick={onColorChoice} /> : null}
 
       {showWinnerModal && state.winner !== null ? (
-        <div className="modal-backdrop">
-          <div className="modal">
+        <div className="modal-backdrop winner-backdrop">
+          <div className="modal winner-modal">
+            <p className="winner-kicker">Game over</p>
             <h2>{playerNames[state.winner] ?? `Player ${state.winner + 1}`} wins!</h2>
-            <button type="button" onClick={handlePlayAgain}>
-              Play Again
-            </button>
+            <div className="winner-actions">
+              <button
+                type="button"
+                className="winner-play-again-btn winner-primary-action"
+                onClick={handleRestartSameRules}
+                disabled={!canManageGameEnd}
+              >
+                Restart Same Rules
+              </button>
+              {onChangeRules ? (
+                <button
+                  type="button"
+                  className="winner-play-again-btn winner-secondary-action"
+                  onClick={onChangeRules}
+                  disabled={!canManageGameEnd}
+                >
+                  Same Lobby, Change Rules
+                </button>
+              ) : null}
+              <button type="button" className="winner-menu-action" onClick={onNewGame}>
+                Main Menu
+              </button>
+            </div>
+            {!canManageGameEnd ? (
+              <p className="winner-action-hint">Waiting for the host to restart or change rules.</p>
+            ) : null}
           </div>
         </div>
       ) : null}

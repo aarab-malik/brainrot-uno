@@ -587,6 +587,76 @@ export class RoomManager {
     this.emitGameState(room);
   }
 
+  restartGame(socket, callback) {
+    const code = this.socketToRoom.get(socket.id);
+    const room = code ? this.rooms.get(code) : null;
+    if (!room || room.status !== "playing" || !room.gameState) {
+      callback?.({ ok: false, error: "No finished game to restart." });
+      return;
+    }
+    if (room.hostId !== socket.id) {
+      callback?.({ ok: false, error: "Only the host can restart the table." });
+      return;
+    }
+    if (room.gameState.winner === null) {
+      callback?.({ ok: false, error: "Finish the current game before restarting." });
+      return;
+    }
+
+    room.players.sort((a, b) => a.slot - b.slot);
+    room.originalNames = room.players.map((p) => p.name);
+    room.players.forEach((p) => {
+      p.role = "player";
+      p.folded = false;
+      p.awaySince = null;
+      p.connected = !!p.id;
+    });
+    room.spectators = [];
+    room.voteKick = null;
+    room.gameState = makeInitialGameState(room.players.length, room.startingHandSize);
+
+    callback?.({ ok: true });
+    this.io.to(code).emit("game-started", {
+      playerNames: room.players.map((p) => p.name),
+    });
+    this.emitGameState(room);
+  }
+
+  returnToLobby(socket, callback) {
+    const code = this.socketToRoom.get(socket.id);
+    const room = code ? this.rooms.get(code) : null;
+    if (!room || room.status !== "playing" || !room.gameState) {
+      callback?.({ ok: false, error: "No finished game to change." });
+      return;
+    }
+    if (room.hostId !== socket.id) {
+      callback?.({ ok: false, error: "Only the host can change the rules." });
+      return;
+    }
+    if (room.gameState.winner === null) {
+      callback?.({ ok: false, error: "Finish the current game before changing rules." });
+      return;
+    }
+
+    room.status = "lobby";
+    room.gameState = null;
+    room.originalNames = null;
+    room.voteKick = null;
+    room.players.sort((a, b) => a.slot - b.slot);
+    room.players.forEach((p, slot) => {
+      p.slot = slot;
+      p.role = "player";
+      p.folded = false;
+      p.awaySince = null;
+      p.connected = !!p.id;
+    });
+    room.maxPlayers = Math.max(room.maxPlayers, room.players.length);
+    room.startingHandSize = clampStartingHandSize(room.startingHandSize, room.maxPlayers);
+
+    callback?.({ ok: true });
+    this.emitLobby(room);
+  }
+
   findPlayer(room, socketId) {
     return room.players.find((p) => p.id === socketId);
   }
@@ -680,7 +750,7 @@ export class RoomManager {
         nextState = applyPlay(state, slot, cardIndex, chosenColor ?? null);
       } else if (action.type === "uno") {
         if (!needsUnoCall(state, slot)) {
-          callback?.({ ok: false, error: "Call UNO when you have one card left." });
+          callback?.({ ok: false, error: "Call UNO before playing from two cards to one." });
           return;
         }
         nextState = applyCallUno(state, slot);

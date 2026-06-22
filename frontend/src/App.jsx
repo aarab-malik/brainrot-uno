@@ -32,6 +32,10 @@ export default function App() {
 
     const onLobby = (data) => {
       setLobby(data);
+      if (data?.status === "lobby") {
+        setGamePayload(null);
+        setScreen(SCREENS.ONLINE);
+      }
       setOnlineError(null);
     };
 
@@ -217,6 +221,7 @@ export default function App() {
         playerCount={botPlayerCount}
         startingHandSize={botStartingHand}
         onExit={() => setScreen(SCREENS.HOME)}
+        onChangeRules={() => setScreen(SCREENS.BOTS_SETUP)}
       />
     );
   }

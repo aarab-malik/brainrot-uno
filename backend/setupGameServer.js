@@ -25,6 +25,8 @@ export function attachGameServer(httpServer) {
     socket.on("host-kick", (targetSlot, cb) => rooms.hostKick(socket, targetSlot, cb));
     socket.on("leave-room", () => rooms.leaveRoom(socket));
     socket.on("start-game", (cb) => rooms.startGame(socket, cb));
+    socket.on("restart-game", (cb) => rooms.restartGame(socket, cb));
+    socket.on("return-lobby", (cb) => rooms.returnToLobby(socket, cb));
     socket.on("game-action", (action, cb) => rooms.handleGameAction(socket, action, cb));
     socket.on("disconnect", () => rooms.handleDisconnect(socket));
   });

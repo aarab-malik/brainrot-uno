@@ -28,6 +28,7 @@ export default function OnlineGame({
   const tableRef = useRef(null);
   const stateRef = useRef(initialState);
   const localDrawAnimatingRef = useRef(false);
+  const initialStateAppliedRef = useRef(false);
   const payloadQueueRef = useRef(Promise.resolve());
 
   const {
@@ -73,18 +74,23 @@ export default function OnlineGame({
       if (drawInfo && !isLocalDrawer) {
         const { playerIndex, count } = drawInfo;
         const beforeCount = handCount(prev?.hands?.[playerIndex]);
+        const startPileLen = prev?.drawPile?.length ?? 0;
+        const endPileLen = next.drawPile.length;
 
         await runAnimationSequence(async () => {
-          let displayed = { ...next };
           for (let i = 0; i < count; i += 1) {
             await animateDrawFromPile(playerIndex, viewerSlot, null);
-            displayed = {
-              ...displayed,
-              hands: displayed.hands.map((hand, idx) =>
+            const pileLen = Math.max(endPileLen, startPileLen - (i + 1));
+            setState((current) => ({
+              ...current,
+              drawPile:
+                current.drawPile.length > pileLen
+                  ? current.drawPile.slice(0, pileLen)
+                  : current.drawPile,
+              hands: current.hands.map((hand, idx) =>
                 idx === playerIndex ? { hidden: true, count: beforeCount + i + 1 } : hand
               ),
-            };
-            setState(displayed);
+            }));
           }
         });
         setState(next);
@@ -112,36 +118,36 @@ export default function OnlineGame({
   }, [info]);
 
   useEffect(() => {
-    if (initialState) setState(initialState);
+    if (initialState && !initialStateAppliedRef.current) {
+      initialStateAppliedRef.current = true;
+      setState(initialState);
+    }
   }, [initialState]);
 
   useEffect(() => {
     applyMeta(gamePayload);
-    if (gamePayload?.state) setState(gamePayload.state);
+    if (gamePayload?.state) enqueueServerPayload(gamePayload);
     if (gamePayload?.message) setInfo(gamePayload.message);
-  }, [gamePayload, applyMeta]);
+  }, [gamePayload, applyMeta, enqueueServerPayload]);
 
   useEffect(() => {
     const socket = socketRef.current;
     if (!socket) return undefined;
 
-    const onUpdate = (payload) => enqueueServerPayload(payload);
     const onAway = (data) => setInfo(data?.message ?? "Disconnected — rejoin with same name and code within 60s.");
     const onKicked = (data) =>
       setInfo(data?.message ?? "Kicked — rejoin with same name and code within 60s to keep your cards.");
     const onFolded = (data) => setInfo(data?.message ?? "A player was removed from the game.");
 
-    socket.on("game-update", onUpdate);
     socket.on("player-away", onAway);
     socket.on("player-kicked", onKicked);
     socket.on("player-folded", onFolded);
     return () => {
-      socket.off("game-update", onUpdate);
       socket.off("player-away", onAway);
       socket.off("player-kicked", onKicked);
       socket.off("player-folded", onFolded);
     };
-  }, [socketRef, enqueueServerPayload]);
+  }, [socketRef]);
 
   const emitAction = useCallback(
     (action, { applyState = true } = {}) =>
@@ -287,15 +293,21 @@ export default function OnlineGame({
         return res;
       }
 
+      const startPileLen = stateRef.current.drawPile.length;
+      const endPileLen = targetState.drawPile.length;
+
       await runAnimationSequence(async () => {
         for (let i = 0; i < drawn.length; i += 1) {
           await animateDrawFromPile(mySlot, mySlot, drawn[i]);
           const visibleCount = Math.min(finalHand.length, beforeLen + i + 1);
           const revealHand = finalHand.slice(0, visibleCount);
-          setState({
-            ...targetState,
-            hands: targetState.hands.map((hand, idx) => (idx === mySlot ? revealHand : hand)),
-          });
+          const pileLen = Math.max(endPileLen, startPileLen - (i + 1));
+          setState((prev) => ({
+            ...prev,
+            drawPile:
+              prev.drawPile.length > pileLen ? prev.drawPile.slice(0, pileLen) : prev.drawPile,
+            hands: prev.hands.map((hand, idx) => (idx === mySlot ? revealHand : hand)),
+          }));
         }
       });
       setState(targetState);
@@ -335,6 +347,20 @@ export default function OnlineGame({
   function handleLeave() {
     socketRef.current?.emit("leave-room");
     onExit();
+  }
+
+  function handleRestartSameRules() {
+    if (isAnimating) return;
+    socketRef.current?.emit("restart-game", (res) => {
+      if (!res?.ok) setError(res?.error ?? "Could not restart game");
+    });
+  }
+
+  function handleChangeRules() {
+    if (isAnimating) return;
+    socketRef.current?.emit("return-lobby", (res) => {
+      if (!res?.ok) setError(res?.error ?? "Could not return to lobby");
+    });
   }
 
   const displayHumanPlayer = isSpectator ? Math.max(0, (state.playerCount ?? playerNames.length) - 1) : mySlot;
@@ -399,6 +425,9 @@ export default function OnlineGame({
         onColorChoice={handleColorChoice}
         onCallUno={handleCallUno}
         onNewGame={handleLeave}
+        onRestartSameRules={handleRestartSameRules}
+        onChangeRules={handleChangeRules}
+        canManageGameEnd={myPlayerId === hostId}
         newGameLabel="← Leave"
         showWinnerModal
       />

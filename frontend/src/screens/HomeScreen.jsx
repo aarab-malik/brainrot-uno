@@ -18,14 +18,6 @@ export default function HomeScreen({ onPlayBots, onPlayOnline }) {
         </header>
 
         <main className="home-choices" aria-label="Choose game mode">
-          <section className="landing-copy">
-            <span className="landing-rule" aria-hidden />
-            <p className="party-tagline">Simple rules, loud reverses, and one clean table.</p>
-            <p className="landing-note">
-              Pick a mode to start. The game table opens in a locked full-screen view.
-            </p>
-          </section>
-
           <button type="button" className="mode-card mode-card-bots" onClick={onPlayBots}>
             <span className="mode-stripe" aria-hidden />
             <span className="mode-number">01</span>

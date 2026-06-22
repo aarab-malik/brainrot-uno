@@ -172,52 +172,76 @@ export default function OnlineScreen({
 
           {isHost ? (
             <div className="lobby-host-settings">
-              <label className="party-field lobby-size-field">
-                <span>Max players</span>
-                <div className="player-count-picker compact-picker">
+              <div className="party-field lobby-size-field">
+                <span id="lobby-max-players-label">Max players</span>
+                <div
+                  className="player-count-picker compact-picker"
+                  role="group"
+                  aria-labelledby="lobby-max-players-label"
+                >
                   <button
                     type="button"
-                    className="count-step"
+                    className="count-step count-step-minus"
                     disabled={maxPlayers <= Math.max(MIN_PLAYERS, filled)}
-                    onClick={() => changeRoomSize(maxPlayers - 1)}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={(e) => {
+                      changeRoomSize(maxPlayers - 1);
+                      e.currentTarget.blur();
+                    }}
                   >
                     −
                   </button>
                   <span className="count-display-inline">{maxPlayers}</span>
                   <button
                     type="button"
-                    className="count-step"
+                    className="count-step count-step-plus"
                     disabled={maxPlayers >= MAX_PLAYERS}
-                    onClick={() => changeRoomSize(maxPlayers + 1)}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={(e) => {
+                      changeRoomSize(maxPlayers + 1);
+                      e.currentTarget.blur();
+                    }}
                   >
                     +
                   </button>
                 </div>
-              </label>
-              <label className="party-field lobby-size-field">
-                <span>
+              </div>
+              <div className="party-field lobby-size-field">
+                <span id="lobby-hand-size-label">
                   Starting cards each ({MIN_STARTING_HAND}–{handCap}, {20} left in draw pile)
                 </span>
-                <div className="player-count-picker compact-picker">
+                <div
+                  className="player-count-picker compact-picker"
+                  role="group"
+                  aria-labelledby="lobby-hand-size-label"
+                >
                   <button
                     type="button"
-                    className="count-step"
+                    className="count-step count-step-minus"
                     disabled={handSize <= MIN_STARTING_HAND}
-                    onClick={() => changeStartingHand(handSize - 1)}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={(e) => {
+                      changeStartingHand(handSize - 1);
+                      e.currentTarget.blur();
+                    }}
                   >
                     −
                   </button>
                   <span className="count-display-inline">{handSize}</span>
                   <button
                     type="button"
-                    className="count-step"
+                    className="count-step count-step-plus"
                     disabled={handSize >= handCap}
-                    onClick={() => changeStartingHand(handSize + 1)}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={(e) => {
+                      changeStartingHand(handSize + 1);
+                      e.currentTarget.blur();
+                    }}
                   >
                     +
                   </button>
                 </div>
-              </label>
+              </div>
             </div>
           ) : (
             <p className="lobby-hint lobby-hand-hint">

@@ -30,9 +30,13 @@ export default function BotSetupScreen({ onBack, onStart }) {
         <div className="player-count-picker">
           <button
             type="button"
-            className="count-step"
+            className="count-step count-step-minus"
             disabled={playerCount <= MIN_PLAYERS}
-            onClick={() => setPlayerCount((n) => Math.max(MIN_PLAYERS, n - 1))}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              setPlayerCount((n) => Math.max(MIN_PLAYERS, n - 1));
+              e.currentTarget.blur();
+            }}
             aria-label="Fewer players"
           >
             −
@@ -43,9 +47,13 @@ export default function BotSetupScreen({ onBack, onStart }) {
           </div>
           <button
             type="button"
-            className="count-step"
+            className="count-step count-step-plus"
             disabled={playerCount >= MAX_PLAYERS}
-            onClick={() => setPlayerCount((n) => Math.min(MAX_PLAYERS, n + 1))}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={(e) => {
+              setPlayerCount((n) => Math.min(MAX_PLAYERS, n + 1));
+              e.currentTarget.blur();
+            }}
             aria-label="More players"
           >
             +

@@ -16,7 +16,7 @@ import { defaultHumanSlot } from "../utils/seatLayout";
 import { useCardFlight } from "../hooks/useCardFlight";
 import GameTable from "./GameTable";
 
-export default function BotGame({ playerCount, startingHandSize = 8, onExit }) {
+export default function BotGame({ playerCount, startingHandSize = 8, onExit, onChangeRules }) {
   const humanPlayer = defaultHumanSlot(playerCount);
   const [state, setState] = useState(() => makeInitialGameState(playerCount, startingHandSize));
   const [hoveredCardIndex, setHoveredCardIndex] = useState(null);
@@ -93,18 +93,28 @@ export default function BotGame({ playerCount, startingHandSize = 8, onExit }) {
       const finalHand = final.hands[playerIndex];
       const newCards = finalHand.slice(beforeLen);
 
+      const startPileLen = prev.drawPile.length;
+      const endPileLen = final.drawPile.length;
+
       await runAnimationSequence(async () => {
         for (let i = 0; i < newCards.length; i += 1) {
           await animateDrawFromPile(playerIndex, humanPlayer, newCards[i]);
           const revealCount = Math.min(finalHand.length, beforeLen + i + 1);
-          const revealState = {
-            ...final,
-            hands: final.hands.map((hand, idx) =>
-              idx === playerIndex ? finalHand.slice(0, revealCount) : hand
-            ),
-          };
-          setState(revealState);
-          stateRef.current = revealState;
+          const pileLen = Math.max(endPileLen, startPileLen - (i + 1));
+          setState((current) => {
+            const revealState = {
+              ...current,
+              drawPile:
+                current.drawPile.length > pileLen
+                  ? current.drawPile.slice(0, pileLen)
+                  : current.drawPile,
+              hands: current.hands.map((hand, idx) =>
+                idx === playerIndex ? finalHand.slice(0, revealCount) : hand
+              ),
+            };
+            stateRef.current = revealState;
+            return revealState;
+          });
         }
       });
 
@@ -146,10 +156,17 @@ export default function BotGame({ playerCount, startingHandSize = 8, onExit }) {
           return;
         }
 
-        const card = prev.hands[player][move.cardIndex];
+        let turnState = prev;
+        if (needsUnoCall(turnState, player)) {
+          turnState = applyCallUno(turnState, player);
+          setState(turnState);
+          stateRef.current = turnState;
+        }
+
+        const card = turnState.hands[player][move.cardIndex];
         const color =
           card.value === ACTIONS.WILD || card.value === ACTIONS.WILD_DRAW_FOUR
-            ? autoChooseColor(prev.hands[player])
+            ? autoChooseColor(turnState.hands[player])
             : null;
 
         await animatePlayToDiscard(player, humanPlayer, move.cardIndex, card, color);
@@ -157,10 +174,7 @@ export default function BotGame({ playerCount, startingHandSize = 8, onExit }) {
         const latest = stateRef.current;
         if (latest.winner !== null || latest.currentPlayer !== player) return;
 
-        let next = applyPlay(prev, player, move.cardIndex, color);
-        if (needsUnoCall(next, player)) {
-          next = applyCallUno(next, player);
-        }
+        const next = applyPlay(turnState, player, move.cardIndex, color);
         setState(next);
         stateRef.current = next;
       } finally {
@@ -275,6 +289,8 @@ export default function BotGame({ playerCount, startingHandSize = 8, onExit }) {
       onCallUno={handleCallUno}
       onNewGame={onExit ?? resetGame}
       onPlayAgain={resetGame}
+      onRestartSameRules={resetGame}
+      onChangeRules={onChangeRules ?? onExit}
       newGameLabel={onExit ? "← Menu" : "New Game"}
       showWinnerModal
     />

@@ -901,15 +901,15 @@
 /* Menu redesign: quiet gray tabletop shell with UNO color accents. */
 .party-screen {
   --party-bg: #161616;
-  --party-stage: #d8d6d0;
-  --party-stage-soft: #eceae5;
-  --party-card: #f6f5f1;
-  --party-ink: #202020;
+  --party-stage: #d9d7cf;
+  --party-stage-soft: #efede7;
+  --party-card: #f8f6f0;
+  --party-ink: #24231f;
   --party-muted: rgba(32, 32, 32, 0.66);
-  --party-red: #e6392e;
-  --party-blue: #1967d2;
-  --party-yellow: #f5c400;
-  --party-green: #17a65a;
+  --party-red: #d94a3d;
+  --party-blue: #286fd1;
+  --party-yellow: #ffd84d;
+  --party-green: #229d61;
   min-height: 100dvh;
   height: 100dvh;
   align-items: center;
@@ -1180,16 +1180,14 @@
   accent-color: var(--party-red);
 }
 
-.party-btn,
-.count-step {
+.party-btn {
   border-color: #202020;
   color: #202020;
   background: #f8f8f4;
   box-shadow: 5px 5px 0 #202020;
 }
 
-.party-btn:hover:not(:disabled),
-.count-step:hover:not(:disabled) {
+.party-btn:hover:not(:disabled) {
   transform: translate(-3px, -3px);
   box-shadow: 9px 9px 0 #202020;
 }
@@ -1211,7 +1209,7 @@
 
 .room-code {
   color: var(--party-red);
-  text-shadow: 0.08em 0.08em 0 rgba(245, 196, 0, 0.65);
+  text-shadow: 0.08em 0.08em 0 rgba(255, 216, 77, 0.62);
 }
 
 .lobby-players {
@@ -1288,7 +1286,7 @@
   font-family: "DM Sans", sans-serif;
   font-weight: 800;
   letter-spacing: -0.06em;
-  text-shadow: 0 2px 0 rgba(245, 196, 0, 0.28);
+  text-shadow: 0 2px 0 rgba(255, 216, 77, 0.25);
 }
 
 .party-kicker,
@@ -1300,7 +1298,7 @@
 }
 
 .room-code {
-  text-shadow: 0.07em 0.07em 0 rgba(245, 196, 0, 0.55);
+  text-shadow: 0.07em 0.07em 0 rgba(255, 216, 77, 0.52);
 }
 
 .party-btn,
@@ -1341,12 +1339,21 @@
   border-color: var(--party-blue);
   box-shadow:
     4px 4px 0 rgba(78, 78, 72, 0.65),
-    0 0 0 3px rgba(25, 103, 210, 0.12),
+    0 0 0 3px rgba(40, 111, 209, 0.12),
     inset 0 0 0 1px rgba(255, 255, 255, 0.9);
 }
 
+.count-step:focus:not(:focus-visible) {
+  outline: none;
+  background: #fbfaf7;
+  border-color: #2a2a27;
+  box-shadow:
+    4px 4px 0 rgba(78, 78, 72, 0.72),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.88);
+}
+
 .count-step:focus-visible {
-  outline: 3px solid rgba(25, 103, 210, 0.35);
+  outline: 3px solid rgba(40, 111, 209, 0.35);
   outline-offset: 3px;
   background: #fbfaf7;
   border-color: #2a2a27;

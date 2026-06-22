@@ -402,10 +402,18 @@ body {
   z-index: 0;
   overflow: hidden;
   pointer-events: none;
+  background-color: #2a2926;
+}
+
+.cozy-bedroom::before {
+  content: "";
+  position: absolute;
+  inset: -2%;
   background:
     radial-gradient(ellipse 85% 65% at 50% 48%, transparent 32%, rgba(22, 14, 10, 0.38) 100%),
     linear-gradient(180deg, rgba(28, 18, 12, 0.12) 0%, rgba(28, 18, 12, 0.28) 100%),
     url("/sprites/cozy-pixel-retreat-stockcake.jpg") center 42% / cover no-repeat;
+  filter: contrast(1.18) saturate(1.08) brightness(0.86);
   image-rendering: auto;
 }
 
@@ -936,6 +944,38 @@ body {
 
 .human-name-badge .turn-pip {
   color: #ffd447;
+}
+
+.human-end-turn-wrap {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  margin: 2px 0 4px;
+}
+
+.end-turn-btn-prominent {
+  border: 2px solid #262520;
+  border-radius: 999px;
+  padding: 12px 28px;
+  font-family: "Bungee", cursive;
+  font-size: clamp(1rem, 2.6vmin, 1.35rem);
+  letter-spacing: 0.06em;
+  color: #181713;
+  background: linear-gradient(180deg, #ffe668, var(--uno-yellow, #ffd84d));
+  box-shadow:
+    0 0 0 3px rgba(255, 216, 77, 0.24),
+    5px 5px 0 rgba(92, 83, 58, 0.38),
+    0 8px 24px rgba(255, 200, 60, 0.35),
+    inset 0 0 0 1px rgba(255, 251, 221, 0.92);
+  cursor: pointer;
+  white-space: nowrap;
+  animation: uno-pulse 1s ease-in-out infinite;
+}
+
+.end-turn-btn-prominent:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  animation: none;
 }
 
 .human-play-row {
@@ -1500,6 +1540,109 @@ body {
   font-size: 1.2rem;
 }
 
+.winner-backdrop {
+  background: rgba(36, 35, 32, 0.78);
+  backdrop-filter: blur(8px);
+}
+
+.winner-modal {
+  min-width: min(92vw, 420px);
+  padding: clamp(24px, 4vw, 36px);
+  border: 2px solid #292927;
+  border-radius: 20px;
+  background:
+    linear-gradient(90deg, var(--uno-red, #d94a3d) 0 5px, transparent 5px calc(100% - 5px), var(--uno-blue, #286fd1) calc(100% - 5px)),
+    linear-gradient(180deg, #f8f4ed, #e3ded4);
+  box-shadow:
+    0 22px 48px rgba(72, 72, 66, 0.32),
+    8px 8px 0 rgba(92, 92, 86, 0.42),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.88);
+}
+
+.winner-kicker {
+  margin: 0 0 8px;
+  color: #565651;
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+.winner-modal h2 {
+  margin: 0 0 20px;
+  color: #262520;
+  font-family: "DM Sans", sans-serif;
+  font-size: clamp(1.5rem, 4.5vw, 2rem);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.15;
+  text-shadow: 0 2px 0 rgba(255, 216, 77, 0.45);
+}
+
+.winner-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.winner-play-again-btn {
+  border: 2px solid #262520;
+  border-radius: 999px;
+  padding: 13px 24px;
+  font-family: "Bungee", cursive;
+  font-size: clamp(0.8rem, 2.4vw, 1rem);
+  letter-spacing: 0.06em;
+  color: #181713;
+  background: linear-gradient(180deg, #ffe668, var(--uno-yellow, #ffd84d));
+  box-shadow:
+    0 0 0 3px rgba(255, 216, 77, 0.24),
+    5px 5px 0 rgba(92, 83, 58, 0.38),
+    inset 0 0 0 1px rgba(255, 251, 221, 0.92);
+  cursor: pointer;
+  animation: uno-pulse 1s ease-in-out infinite;
+}
+
+.winner-secondary-action {
+  background: linear-gradient(180deg, #fbfaf7, #e4e2dc);
+  box-shadow:
+    4px 4px 0 rgba(78, 78, 72, 0.5),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.88);
+  animation: none;
+}
+
+.winner-menu-action {
+  border: 2px solid rgba(38, 37, 32, 0.7);
+  border-radius: 999px;
+  padding: 11px 20px;
+  font-family: "DM Sans", sans-serif;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #2e2d29;
+  background: rgba(255, 255, 255, 0.45);
+  box-shadow: 3px 3px 0 rgba(78, 78, 72, 0.34);
+  cursor: pointer;
+}
+
+.winner-play-again-btn:hover:not(:disabled),
+.winner-menu-action:hover:not(:disabled) {
+  transform: scale(1.04);
+}
+
+.winner-play-again-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  animation: none;
+}
+
+.winner-action-hint {
+  margin: 12px 0 0;
+  color: #565651;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
 .color-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1604,32 +1747,37 @@ body {
 
 /* Light gray game theme to match the menu/lobby shell. */
 .game-page {
-  --game-paper: #e7e6df;
-  --game-paper-soft: #f5f4ef;
-  --game-ink: #242421;
-  --game-muted: #65645f;
+  --game-paper: #ebe8df;
+  --game-paper-soft: #f8f6f0;
+  --game-ink: #262520;
+  --game-muted: #6b6860;
   --game-shadow: rgba(72, 72, 66, 0.34);
-  --cozy-brown: #8d6544;
-  --cozy-brown-soft: #b28a63;
-  --cozy-cream: #eee8dc;
-  --uno-red: #e6392e;
-  --uno-blue: #1967d2;
-  --uno-yellow: #f5c400;
-  --uno-green: #17a65a;
+  --cozy-brown: #906849;
+  --cozy-brown-soft: #b58b64;
+  --cozy-cream: #f0e9da;
+  --uno-red: #d94a3d;
+  --uno-blue: #286fd1;
+  --uno-yellow: #ffd84d;
+  --uno-green: #229d61;
   color: var(--game-ink);
   background: #2a2926;
 }
 
 .game-page .cozy-bedroom {
+  background-color: #24231f;
+}
+
+.game-page .cozy-bedroom::before {
   background:
-    linear-gradient(rgba(36, 35, 32, 0.32), rgba(36, 35, 32, 0.32)),
+    linear-gradient(rgba(36, 35, 32, 0.08), rgba(36, 35, 32, 0.08)),
     url("/sprites/cozy-pixel-retreat-stockcake.jpg") center 42% / cover no-repeat;
-  filter: none;
+  filter: contrast(1.35) saturate(1.16) brightness(0.94);
+  opacity: 0.86;
 }
 
 .game-page .cozy-bedroom::after {
   background:
-    linear-gradient(90deg, rgba(230, 57, 46, 0.16) 0 5%, transparent 5% 95%, rgba(25, 103, 210, 0.17) 95% 100%);
+    linear-gradient(90deg, rgba(217, 74, 61, 0.16) 0 5%, transparent 5% 95%, rgba(40, 111, 209, 0.17) 95% 100%);
 }
 
 .game-hud.hud {
@@ -1670,8 +1818,8 @@ body {
   margin-left: 0.12em;
   color: var(--uno-red);
   text-shadow:
-    0.05em 0.05em 0 rgba(245, 196, 0, 0.72),
-    0.1em 0.1em 0 rgba(25, 103, 210, 0.62);
+    0.05em 0.05em 0 rgba(255, 216, 77, 0.72),
+    0.1em 0.1em 0 rgba(40, 111, 209, 0.62);
 }
 
 .game-page .sub {
@@ -1686,7 +1834,6 @@ body {
 }
 
 .game-page .hud button,
-.end-turn-btn,
 .penalty-draw-btn,
 .human-draw-column .penalty-draw-btn {
   border: 2px solid #292927;
@@ -1698,7 +1845,6 @@ body {
 }
 
 .game-page .hud button:hover:not(:disabled),
-.end-turn-btn:hover:not(:disabled),
 .penalty-draw-btn:hover:not(:disabled) {
   transform: translate(-2px, -2px);
   box-shadow:
@@ -1707,12 +1853,42 @@ body {
     inset 0 0 0 1px rgba(255, 255, 255, 0.92);
 }
 
+.game-page .end-turn-btn-prominent {
+  border: 2px solid #262520;
+  color: #181713;
+  background: linear-gradient(180deg, #ffe668, var(--uno-yellow));
+  box-shadow:
+    0 0 0 3px rgba(255, 216, 77, 0.24),
+    5px 5px 0 rgba(92, 83, 58, 0.38),
+    0 8px 24px rgba(255, 200, 60, 0.35),
+    inset 0 0 0 1px rgba(255, 251, 221, 0.92);
+  animation: uno-pulse 1s ease-in-out infinite;
+}
+
+.game-page .end-turn-btn-prominent:hover:not(:disabled) {
+  box-shadow:
+    0 0 0 4px rgba(255, 216, 77, 0.32),
+    6px 6px 0 rgba(92, 83, 58, 0.38),
+    0 10px 28px rgba(255, 200, 60, 0.42),
+    inset 0 0 0 1px rgba(255, 251, 221, 0.92);
+}
+
+.uno-call-btn {
+  border: 2px solid #262520;
+  color: #181713;
+  background: linear-gradient(180deg, #ffe668, var(--uno-yellow));
+  box-shadow:
+    0 0 0 3px rgba(255, 216, 77, 0.24),
+    5px 5px 0 rgba(92, 83, 58, 0.38),
+    inset 0 0 0 1px rgba(255, 251, 221, 0.92);
+}
+
 .player-name-rail {
-  scrollbar-color: rgba(25, 103, 210, 0.36) transparent;
+  scrollbar-color: rgba(40, 111, 209, 0.36) transparent;
 }
 
 .player-name-rail::-webkit-scrollbar-thumb {
-  background: rgba(25, 103, 210, 0.34);
+  background: rgba(40, 111, 209, 0.34);
 }
 
 .turn-rail-arrow {
@@ -1720,8 +1896,8 @@ body {
 }
 
 .turn-rail-order {
-  background: rgba(25, 103, 210, 0.1);
-  border-color: rgba(25, 103, 210, 0.28);
+  background: rgba(40, 111, 209, 0.1);
+  border-color: rgba(40, 111, 209, 0.28);
   color: var(--uno-blue);
 }
 
@@ -1733,7 +1909,7 @@ body {
 }
 
 .player-name-chip.you {
-  border-color: rgba(23, 166, 90, 0.38);
+  border-color: rgba(34, 157, 97, 0.38);
 }
 
 .player-name-chip.active,
@@ -1743,34 +1919,38 @@ body {
 }
 
 .player-name-chip.active {
-  border-color: rgba(245, 196, 0, 0.9);
+  border-color: rgba(255, 216, 77, 0.98);
+  color: #181713;
   background:
-    linear-gradient(90deg, rgba(245, 196, 0, 0.2), rgba(23, 166, 90, 0.13)),
-    #fffdf6;
+    linear-gradient(90deg, rgba(255, 230, 104, 0.98), rgba(255, 209, 61, 0.92)),
+    #ffe066;
   box-shadow:
-    3px 3px 0 rgba(106, 106, 98, 0.28),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.94);
+    0 0 0 2px rgba(38, 37, 32, 0.26),
+    0 0 0 5px rgba(255, 216, 77, 0.22),
+    4px 4px 0 rgba(92, 83, 58, 0.36),
+    inset 0 0 0 1px rgba(255, 251, 221, 0.92);
   animation: none;
 }
 
 .player-name-chip.active .turn-rail-order {
-  background: var(--uno-yellow);
-  border-color: rgba(36, 36, 33, 0.2);
+  background: #262520;
+  border-color: rgba(36, 36, 33, 0.35);
+  color: var(--uno-yellow);
 }
 
 .game-toast-turn {
   background:
-    linear-gradient(90deg, var(--uno-green), #249f5c);
+    linear-gradient(90deg, var(--uno-green), #2c9b62);
   border-color: rgba(255, 255, 255, 0.78);
   box-shadow:
     0 8px 22px rgba(72, 72, 66, 0.22),
-    0 0 0 2px rgba(23, 166, 90, 0.18);
+    0 0 0 2px rgba(34, 157, 97, 0.18);
 }
 
 .table.table-felt {
   background:
-    radial-gradient(72% 60% at 50% 42%, #29b76d 0%, #188b50 58%, #0f6338 100%),
-    linear-gradient(180deg, #b89168, #7b5438);
+    radial-gradient(72% 60% at 50% 42%, #2fb570 0%, #1b8752 58%, #135f3c 100%),
+    linear-gradient(180deg, #b9926b, #7f573b);
   border-color: var(--cozy-brown);
   box-shadow:
     inset 0 0 0 3px rgba(238, 220, 196, 0.72),
@@ -1784,8 +1964,8 @@ body {
   border-color: rgba(112, 78, 51, 0.58);
   box-shadow:
     inset 0 0 0 2px rgba(238, 220, 196, 0.42),
-    inset 6px 0 0 rgba(230, 57, 46, 0.62),
-    inset -6px 0 0 rgba(25, 103, 210, 0.62);
+    inset 6px 0 0 rgba(217, 74, 61, 0.62),
+    inset -6px 0 0 rgba(40, 111, 209, 0.62);
 }
 
 .table-felt-pattern {
@@ -1813,14 +1993,16 @@ body {
 
 .opponent-seat.active-turn .player-badge,
 .human-name-badge.your-turn {
-  border-color: rgba(245, 196, 0, 0.95);
-  color: #242421;
+  border-color: rgba(255, 216, 77, 1);
+  color: #181713;
   background:
-    linear-gradient(90deg, rgba(245, 196, 0, 0.24), rgba(23, 166, 90, 0.12)),
-    #fffdf6;
+    linear-gradient(90deg, rgba(255, 230, 104, 0.98), rgba(255, 209, 61, 0.92)),
+    #ffe066;
   box-shadow:
-    4px 4px 0 rgba(78, 78, 72, 0.34),
-    0 0 0 3px rgba(245, 196, 0, 0.14);
+    0 0 0 2px rgba(38, 37, 32, 0.24),
+    0 0 0 5px rgba(255, 216, 77, 0.2),
+    4px 4px 0 rgba(92, 83, 58, 0.34),
+    inset 0 0 0 1px rgba(255, 251, 221, 0.92);
   animation: none;
   text-shadow: none;
 }
@@ -1830,8 +2012,8 @@ body {
 }
 
 .hand-count-tag {
-  background: rgba(25, 103, 210, 0.11);
-  border-color: rgba(25, 103, 210, 0.3);
+  background: rgba(40, 111, 209, 0.11);
+  border-color: rgba(40, 111, 209, 0.3);
   color: var(--uno-blue);
 }
 
@@ -1849,7 +2031,7 @@ body {
 }
 
 .draw-pile {
-  border-color: rgba(25, 103, 210, 0.5);
+  border-color: rgba(40, 111, 209, 0.5);
   background: rgba(247, 246, 242, 0.76);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.7),
@@ -1859,21 +2041,21 @@ body {
 .draw-pile.hovered {
   border-color: var(--uno-blue);
   box-shadow:
-    0 0 0 3px rgba(25, 103, 210, 0.13),
+    0 0 0 3px rgba(40, 111, 209, 0.13),
     4px 4px 0 rgba(78, 78, 72, 0.3),
     inset 0 0 0 1px rgba(255, 255, 255, 0.86);
 }
 
 .human-draw-pile.draw-pile.penalty-mode {
-  border-color: rgba(230, 57, 46, 0.75);
+  border-color: rgba(217, 74, 61, 0.75);
   box-shadow:
-    0 0 0 3px rgba(230, 57, 46, 0.16),
+    0 0 0 3px rgba(217, 74, 61, 0.16),
     4px 4px 0 rgba(78, 78, 72, 0.28);
 }
 
 .human-card-wrap.can-play .card {
   box-shadow:
-    0 0 0 2px rgba(245, 196, 0, 0.72),
+    0 0 0 2px rgba(255, 216, 77, 0.72),
     0 8px 18px rgba(72, 72, 66, 0.28);
 }
 
