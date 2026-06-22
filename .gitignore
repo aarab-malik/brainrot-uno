@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+frontend/dist/
+build/
+
+# Environment & secrets (keep .env.example in the repo)
+.env
+.env.*
+!.env.example
+
+# Generated at runtime (ngrok dev script)
+.ngrok-public-url
+
+# Vite / tooling caches
+.vite/
+*.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Test / coverage
+coverage/
+
+# Python leftovers (from earlier notebook experiments)
+__pycache__/
+*.py[cod]
+*$py.class
+.ipynb_checkpoints/
+*.ipynb
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editor / IDE (personal settings — not shared project config)
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Cursor (local agent/cache — do not publish)
+.cursor/
+
+# Optional local overrides
+*.pem
+*.key

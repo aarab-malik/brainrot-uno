@@ -1,0 +1,269 @@
+import { useCallback, useEffect, useState } from "react";
+import BotGame from "./game/BotGame";
+import OnlineGame from "./game/OnlineGame";
+import { useSocket } from "./hooks/useSocket";
+import BotSetupScreen from "./screens/BotSetupScreen";
+import HomeScreen from "./screens/HomeScreen";
+import OnlineScreen from "./screens/OnlineScreen";
+import { clearUnoSession, loadUnoSession, saveUnoSession } from "./utils/sessionStorage";
+
+const SCREENS = {
+  HOME: "home",
+  BOTS_SETUP: "bots-setup",
+  BOTS: "bots",
+  ONLINE: "online",
+  ONLINE_GAME: "online-game",
+};
+
+export default function App() {
+  const [screen, setScreen] = useState(SCREENS.HOME);
+  const { socket, connected, connectError } = useSocket();
+
+  const [lobby, setLobby] = useState(null);
+  const [myPlayerId, setMyPlayerId] = useState(null);
+  const [mySlot, setMySlot] = useState(null);
+  const [onlineError, setOnlineError] = useState(null);
+  const [gamePayload, setGamePayload] = useState(null);
+  const [botPlayerCount, setBotPlayerCount] = useState(3);
+  const [botStartingHand, setBotStartingHand] = useState(8);
+  useEffect(() => {
+    const s = socket.current;
+    if (!s) return undefined;
+
+    const onLobby = (data) => {
+      setLobby(data);
+      setOnlineError(null);
+    };
+
+    const onGameStarted = ({ playerNames }) => {
+      setOnlineError(null);
+      const session = loadUnoSession();
+      if (session && playerNames?.[session.slot]) {
+        saveUnoSession(session);
+      }
+    };
+
+    s.on("lobby-update", onLobby);
+    s.on("game-started", onGameStarted);
+
+    return () => {
+      s.off("lobby-update", onLobby);
+      s.off("game-started", onGameStarted);
+    };
+  }, [socket]);
+
+  useEffect(() => {
+    const s = socket.current;
+    if (!s) return undefined;
+
+    const onGameUpdate = (payload) => {
+      setGamePayload(payload);
+      if (payload.isSpectator) {
+        setMySlot(null);
+      } else if (payload.yourSlot != null) {
+        setMySlot(payload.yourSlot);
+      }
+      setScreen(SCREENS.ONLINE_GAME);
+    };
+
+    s.on("game-update", onGameUpdate);
+    return () => s.off("game-update", onGameUpdate);
+  }, [socket]);
+
+  useEffect(() => {
+    const s = socket.current;
+    if (!s) return undefined;
+
+    const tryResume = () => {
+      const session = loadUnoSession();
+      if (!session) return;
+      s.emit("resume-room", session, (res) => {
+        if (!res?.ok) {
+          clearUnoSession();
+          return;
+        }
+        setMyPlayerId(res.playerId);
+        saveUnoSession({ code: res.code, name: session.name, slot: res.slot });
+        if (res.playing && res.state) {
+          setGamePayload({
+            state: res.state,
+            yourSlot: res.slot,
+            isSpectator: !!res.isSpectator,
+            playerNames: res.playerNames,
+            roster: res.roster,
+            voteKick: res.voteKick,
+            hostId: res.hostId,
+            message: res.message,
+          });
+          setMySlot(res.isSpectator ? null : res.slot);
+          setScreen(SCREENS.ONLINE_GAME);
+        }
+      });
+    };
+
+    if (s.connected) tryResume();
+    s.on("connect", tryResume);
+    return () => s.off("connect", tryResume);
+  }, [socket]);
+
+  const hostRoom = useCallback(
+    (name, maxPlayers, startingHandSize) =>
+      new Promise((resolve) => {
+        socket.current?.emit("host-room", { name, maxPlayers, startingHandSize }, (res) => {
+          if (res?.ok) {
+            setMyPlayerId(res.playerId);
+            setMySlot(res.slot);
+            saveUnoSession({ code: res.code, slot: res.slot, name });
+            setOnlineError(null);
+          } else {
+            setOnlineError(res?.error ?? "Could not create room");
+          }
+          resolve(res);
+        });
+      }),
+    [socket]
+  );
+
+  const joinRoom = useCallback(
+    (code, name) =>
+      new Promise((resolve) => {
+        socket.current?.emit("join-room", { code, name }, (res) => {
+          if (res?.ok) {
+            setMyPlayerId(res.playerId);
+            setMySlot(res.isSpectator ? null : res.slot);
+            saveUnoSession({ code: res.code, name, slot: res.slot });
+            setOnlineError(null);
+            if (res.playing && res.state) {
+              setGamePayload({
+                state: res.state,
+                yourSlot: res.slot,
+                isSpectator: !!res.isSpectator,
+                playerNames: res.playerNames,
+                roster: res.roster,
+                voteKick: res.voteKick,
+                hostId: res.hostId,
+                message: res.message,
+              });
+              setScreen(SCREENS.ONLINE_GAME);
+            }
+          } else {
+            setOnlineError(res?.error ?? "Could not join");
+          }
+          resolve(res);
+        });
+      }),
+    [socket]
+  );
+
+  const leaveLobby = useCallback(() => {
+    socket.current?.emit("leave-room");
+    clearUnoSession();
+    setLobby(null);
+    setMyPlayerId(null);
+    setMySlot(null);
+    setGamePayload(null);
+    setScreen(SCREENS.HOME);
+  }, [socket]);
+
+  const startGame = useCallback(() => {
+    socket.current?.emit("start-game", (res) => {
+      if (!res?.ok) setOnlineError(res?.error ?? "Could not start");
+    });
+  }, [socket]);
+
+  const setMaxPlayers = useCallback(
+    (maxPlayers) =>
+      new Promise((resolve) => {
+        socket.current?.emit("set-max-players", maxPlayers, (res) => {
+          if (!res?.ok) setOnlineError(res?.error ?? "Could not update room");
+          resolve(res);
+        });
+      }),
+    [socket]
+  );
+
+  const setStartingHandSize = useCallback(
+    (handSize) =>
+      new Promise((resolve) => {
+        socket.current?.emit("set-starting-hand", handSize, (res) => {
+          if (!res?.ok) setOnlineError(res?.error ?? "Could not update hand size");
+          resolve(res);
+        });
+      }),
+    [socket]
+  );
+
+  const enterGame = useCallback((payload) => {
+    setGamePayload(payload);
+    setScreen(SCREENS.ONLINE_GAME);
+  }, []);
+
+  if (screen === SCREENS.BOTS_SETUP) {
+    return (
+      <BotSetupScreen
+        onBack={() => setScreen(SCREENS.HOME)}
+        onStart={(count, startingHandSize) => {
+          setBotPlayerCount(count);
+          setBotStartingHand(startingHandSize ?? 8);
+          setScreen(SCREENS.BOTS);
+        }}
+      />
+    );
+  }
+
+  if (screen === SCREENS.BOTS) {
+    return (
+      <BotGame
+        playerCount={botPlayerCount}
+        startingHandSize={botStartingHand}
+        onExit={() => setScreen(SCREENS.HOME)}
+      />
+    );
+  }
+
+  if (screen === SCREENS.ONLINE_GAME && gamePayload?.state) {
+    return (
+      <OnlineGame
+        socketRef={socket}
+        mySlot={gamePayload.isSpectator ? null : mySlot}
+        myPlayerId={myPlayerId}
+        playerNames={gamePayload.playerNames}
+        initialState={gamePayload.state}
+        gamePayload={gamePayload}
+        isSpectator={!!gamePayload.isSpectator}
+        onExit={leaveLobby}
+      />
+    );
+  }
+
+  if (screen === SCREENS.ONLINE) {
+    return (
+      <OnlineScreen
+        connected={connected}
+        connectError={connectError}
+        onBack={() => {
+          if (lobby) leaveLobby();
+          else setScreen(SCREENS.HOME);
+        }}
+        onHost={hostRoom}
+        onJoin={joinRoom}
+        lobby={lobby}
+        myPlayerId={myPlayerId}
+        error={onlineError}
+        onStartGame={startGame}
+        onSetMaxPlayers={setMaxPlayers}
+        onSetStartingHandSize={setStartingHandSize}
+        onLeaveLobby={leaveLobby}
+        onEnterGame={enterGame}
+        gamePayload={gamePayload}
+      />
+    );
+  }
+
+  return (
+    <HomeScreen
+      onPlayBots={() => setScreen(SCREENS.BOTS_SETUP)}
+      onPlayOnline={() => setScreen(SCREENS.ONLINE)}
+    />
+  );
+}

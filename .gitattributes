@@ -1,0 +1,17 @@
+# Normalize text files to LF in the repo (works well on Windows, macOS, Linux).
+* text=auto eol=lf
+
+# Windows scripts keep CRLF if you add any later.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets — no line-ending conversion.
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
