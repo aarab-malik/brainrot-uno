@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { spriteCandidates } from "@shared/gameLogic.js";
+import {
+  firstUsableCandidateIndex,
+  markSpriteFailed,
+  markSpriteLoaded,
+  preloadSpriteCandidates,
+  toSpriteUrl,
+} from "../utils/spriteCache";
 
 export default function CardSprite({
   card,
@@ -12,8 +19,10 @@ export default function CardSprite({
   const candidates = useMemo(() => (card ? spriteCandidates(card) : []), [card]);
 
   useEffect(() => {
-    setCandidateIndex(0);
-  }, [card?.id, showBack]);
+    if (showBack) return;
+    setCandidateIndex(firstUsableCandidateIndex(candidates, 0));
+    preloadSpriteCandidates(candidates, 4);
+  }, [candidates, card?.id, showBack]);
 
   if (showBack) {
     return (
@@ -24,7 +33,7 @@ export default function CardSprite({
     );
   }
 
-  const src = candidates[candidateIndex] ? `/sprites/${candidates[candidateIndex]}` : null;
+  const src = candidateIndex >= 0 && candidates[candidateIndex] ? toSpriteUrl(candidates[candidateIndex]) : null;
   return (
     <div
       className={`card card-front ${dim ? "card-dim" : ""} ${selected ? "card-selected" : ""} ${className}`}
@@ -34,10 +43,13 @@ export default function CardSprite({
           src={src}
           alt={card ? `${card.color} ${card.value}` : ""}
           draggable={false}
+          decoding="async"
+          onLoad={() => {
+            markSpriteLoaded(src);
+          }}
           onError={() => {
-            if (candidateIndex + 1 < candidates.length) {
-              setCandidateIndex(candidateIndex + 1);
-            }
+            markSpriteFailed(src);
+            setCandidateIndex((prev) => firstUsableCandidateIndex(candidates, Math.max(prev + 1, 0)));
           }}
         />
       ) : (

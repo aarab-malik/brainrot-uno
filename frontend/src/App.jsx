@@ -197,6 +197,17 @@ export default function App() {
     [socket]
   );
 
+  const setRoomRules = useCallback(
+    (rules) =>
+      new Promise((resolve) => {
+        socket.current?.emit("set-room-rules", rules, (res) => {
+          if (!res?.ok) setOnlineError(res?.error ?? "Could not update rules");
+          resolve(res);
+        });
+      }),
+    [socket]
+  );
+
   const enterGame = useCallback((payload) => {
     setGamePayload(payload);
     setScreen(SCREENS.ONLINE_GAME);
@@ -258,6 +269,7 @@ export default function App() {
         onStartGame={startGame}
         onSetMaxPlayers={setMaxPlayers}
         onSetStartingHandSize={setStartingHandSize}
+        onSetRoomRules={setRoomRules}
         onLeaveLobby={leaveLobby}
         onEnterGame={enterGame}
         gamePayload={gamePayload}

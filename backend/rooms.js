@@ -12,6 +12,8 @@ import {
   MIN_PLAYERS,
   MAX_PLAYERS,
   MIN_STARTING_HAND,
+  DEFAULT_GAME_RULES,
+  normalizeGameRules,
   clampPlayerCount,
   clampStartingHandSize,
   maxStartingHandForPlayers,
@@ -88,6 +90,7 @@ export class RoomManager {
       hostId: room.hostId,
       maxPlayers: room.maxPlayers,
       startingHandSize: room.startingHandSize,
+      rules: normalizeGameRules(room.rules ?? DEFAULT_GAME_RULES),
       minStartingHand: MIN_STARTING_HAND,
       maxStartingHand,
       status: room.status,
@@ -157,18 +160,20 @@ export class RoomManager {
     return Math.max(1, Math.ceil(n / 2));
   }
 
-  hostRoom(socket, { name, maxPlayers: rawMax, startingHandSize: rawHand }, callback) {
+  hostRoom(socket, { name, maxPlayers: rawMax, startingHandSize: rawHand, rules: rawRules }, callback) {
     let code = generateCode();
     while (this.rooms.has(code)) code = generateCode();
 
     const maxPlayers = clampPlayerCount(rawMax ?? MAX_PLAYERS);
     const startingHandSize = clampStartingHandSize(rawHand, maxPlayers);
+    const rules = normalizeGameRules(rawRules ?? DEFAULT_GAME_RULES);
 
     const room = {
       code,
       hostId: socket.id,
       maxPlayers,
       startingHandSize,
+      rules,
       status: "lobby",
       players: [],
       spectators: [],
@@ -183,7 +188,15 @@ export class RoomManager {
     this.socketToRoom.set(socket.id, code);
     socket.join(code);
 
-    callback({ ok: true, code, playerId: socket.id, slot: 0, maxPlayers, startingHandSize });
+    callback({
+      ok: true,
+      code,
+      playerId: socket.id,
+      slot: 0,
+      maxPlayers,
+      startingHandSize,
+      rules,
+    });
     this.emitLobby(room);
   }
 
@@ -212,6 +225,17 @@ export class RoomManager {
     }
     room.startingHandSize = clampStartingHandSize(handSize, room.maxPlayers);
     callback?.({ ok: true, startingHandSize: room.startingHandSize });
+    this.emitLobby(room);
+  }
+
+  setRoomRules(socket, rulesInput, callback) {
+    const room = this.getRoom(this.socketToRoom.get(socket.id));
+    if (!room || room.hostId !== socket.id || room.status !== "lobby") {
+      callback?.({ ok: false, error: "Cannot change rules right now." });
+      return;
+    }
+    room.rules = normalizeGameRules(rulesInput);
+    callback?.({ ok: true, rules: room.rules });
     this.emitLobby(room);
   }
 
@@ -568,6 +592,7 @@ export class RoomManager {
     }
 
     room.status = "playing";
+    room.rules = normalizeGameRules(room.rules ?? DEFAULT_GAME_RULES);
     room.players.sort((a, b) => a.slot - b.slot);
     room.originalNames = room.players.map((p) => p.name);
     room.players.forEach((p) => {
@@ -578,7 +603,7 @@ export class RoomManager {
     });
     room.spectators = [];
     room.voteKick = null;
-    room.gameState = makeInitialGameState(count, room.startingHandSize);
+    room.gameState = makeInitialGameState(count, room.startingHandSize, room.rules);
 
     callback({ ok: true });
     this.io.to(code).emit("game-started", {
@@ -604,6 +629,7 @@ export class RoomManager {
     }
 
     room.players.sort((a, b) => a.slot - b.slot);
+    room.rules = normalizeGameRules(room.rules ?? DEFAULT_GAME_RULES);
     room.originalNames = room.players.map((p) => p.name);
     room.players.forEach((p) => {
       p.role = "player";
@@ -613,7 +639,11 @@ export class RoomManager {
     });
     room.spectators = [];
     room.voteKick = null;
-    room.gameState = makeInitialGameState(room.players.length, room.startingHandSize);
+    room.gameState = makeInitialGameState(
+      room.players.length,
+      room.startingHandSize,
+      room.rules
+    );
 
     callback?.({ ok: true });
     this.io.to(code).emit("game-started", {

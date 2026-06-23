@@ -18,6 +18,33 @@ export const MAX_STARTING_HAND = 15;
 /** Default when not configured (online lobby / bots). */
 export const STARTING_HAND_SIZE = 8;
 
+export const DEFAULT_GAME_RULES = {
+  allowDrawTwoOnDrawTwo: true,
+  allowDrawTwoOnDrawFour: false,
+  allowDrawFourOnDrawTwo: false,
+  allowDrawFourOnDrawFour: true,
+  drawTwoSkipsTurn: true,
+  drawFourSkipsTurn: false,
+  allowSkipReverseOnDrawTwo: true,
+};
+
+export function normalizeGameRules(rules = {}) {
+  return {
+    allowDrawTwoOnDrawTwo:
+      rules.allowDrawTwoOnDrawTwo ?? DEFAULT_GAME_RULES.allowDrawTwoOnDrawTwo,
+    allowDrawTwoOnDrawFour:
+      rules.allowDrawTwoOnDrawFour ?? DEFAULT_GAME_RULES.allowDrawTwoOnDrawFour,
+    allowDrawFourOnDrawTwo:
+      rules.allowDrawFourOnDrawTwo ?? DEFAULT_GAME_RULES.allowDrawFourOnDrawTwo,
+    allowDrawFourOnDrawFour:
+      rules.allowDrawFourOnDrawFour ?? DEFAULT_GAME_RULES.allowDrawFourOnDrawFour,
+    drawTwoSkipsTurn: rules.drawTwoSkipsTurn ?? DEFAULT_GAME_RULES.drawTwoSkipsTurn,
+    drawFourSkipsTurn: rules.drawFourSkipsTurn ?? DEFAULT_GAME_RULES.drawFourSkipsTurn,
+    allowSkipReverseOnDrawTwo:
+      rules.allowSkipReverseOnDrawTwo ?? DEFAULT_GAME_RULES.allowSkipReverseOnDrawTwo,
+  };
+}
+
 export function getPlayerCount(state) {
   return state.playerCount ?? state.hands?.length ?? MIN_PLAYERS;
 }
@@ -178,7 +205,11 @@ function chooseStartingTop(drawPile, discardPile) {
   };
 }
 
-export function makeInitialGameState(playerCount = 3, startingHandSize = STARTING_HAND_SIZE) {
+export function makeInitialGameState(
+  playerCount = 3,
+  startingHandSize = STARTING_HAND_SIZE,
+  rules = DEFAULT_GAME_RULES
+) {
   const n = clampPlayerCount(playerCount);
   const handSize = clampStartingHandSize(startingHandSize, n);
   let drawPile = shuffleCards(createDeck());
@@ -192,6 +223,7 @@ export function makeInitialGameState(playerCount = 3, startingHandSize = STARTIN
   }
 
   const start = chooseStartingTop(drawPile, []);
+  const normalizedRules = normalizeGameRules(rules);
 
   return {
     hands,
@@ -214,6 +246,7 @@ export function makeInitialGameState(playerCount = 3, startingHandSize = STARTIN
     unoPending: null,
     unoMissed: Array(n).fill(false),
     foldedSlots: Array(n).fill(false),
+    rules: normalizedRules,
   };
 }
 
@@ -472,13 +505,34 @@ function penaltyChainMode(state) {
   return state.penaltyChainMode ?? PENALTY_CHAIN.STACK;
 }
 
+function gameRules(state) {
+  return normalizeGameRules(state?.rules);
+}
+
 function canStackDrawOnPending(card, state) {
   if (state.pendingDraw <= 0 || !state.drawStackType) return false;
+  const rules = gameRules(state);
   if (state.drawStackType === ACTIONS.DRAW_TWO) {
-    return card.value === ACTIONS.DRAW_TWO && penaltyChainMode(state) === PENALTY_CHAIN.STACK;
+    if (card.value === ACTIONS.DRAW_TWO) {
+      return rules.allowDrawTwoOnDrawTwo && penaltyChainMode(state) === PENALTY_CHAIN.STACK;
+    }
+    if (card.value === ACTIONS.WILD_DRAW_FOUR) {
+      return rules.allowDrawFourOnDrawTwo;
+    }
+    return false;
   }
   if (state.drawStackType === ACTIONS.WILD_DRAW_FOUR) {
-    return card.value === ACTIONS.WILD_DRAW_FOUR;
+    if (card.value === ACTIONS.WILD_DRAW_FOUR) {
+      return rules.allowDrawFourOnDrawFour;
+    }
+    if (card.value === ACTIONS.DRAW_TWO) {
+      return (
+        rules.allowDrawTwoOnDrawFour &&
+        !!state.topCard?.color &&
+        card.color === state.topCard.color
+      );
+    }
+    return false;
   }
   return false;
 }
@@ -486,6 +540,8 @@ function canStackDrawOnPending(card, state) {
 /** Skip / reverse played to pass a pending +2 to another player. */
 export function canRedirectPenalty(card, state) {
   if (state.pendingDraw <= 0 || state.drawStackType !== ACTIONS.DRAW_TWO) return false;
+  const rules = gameRules(state);
+  if (!rules.allowSkipReverseOnDrawTwo) return false;
   const anchor = state.penaltyAnchorColor;
   const mode = penaltyChainMode(state);
 
@@ -572,8 +628,11 @@ export function applyPassTurn(state, playerIndex) {
 
 export function applyDraw(state, playerIndex, amount) {
   let base = closeUnoWindowForOtherPlayer(state, playerIndex);
+  const rules = gameRules(base);
   const forceEndFromPenalty =
-    base.pendingDraw > 0 && base.drawStackType === ACTIONS.DRAW_TWO;
+    base.pendingDraw > 0 &&
+    ((base.drawStackType === ACTIONS.DRAW_TWO && rules.drawTwoSkipsTurn) ||
+      (base.drawStackType === ACTIONS.WILD_DRAW_FOUR && rules.drawFourSkipsTurn));
 
   let drawPile = [...base.drawPile];
   let discardPile = [...base.discardPile];
@@ -687,23 +746,23 @@ export function applyPlay(state, playerIndex, cardIndex, chosenColor = null) {
 
     const st = stackType(card);
     if (st === ACTIONS.DRAW_TWO) {
-      if (drawStackType === ACTIONS.DRAW_TWO) {
+      if (pendingDraw > 0) {
         pendingDraw += 2;
       } else {
         pendingDraw = 2;
-        drawStackType = ACTIONS.DRAW_TWO;
       }
+      drawStackType = ACTIONS.DRAW_TWO;
       penaltyChain = PENALTY_CHAIN.STACK;
       penaltyAnchor = topCard.color;
     } else if (st === ACTIONS.WILD_DRAW_FOUR) {
-      if (drawStackType === ACTIONS.WILD_DRAW_FOUR) {
+      if (pendingDraw > 0) {
         pendingDraw += 4;
       } else {
         pendingDraw = 4;
-        drawStackType = ACTIONS.WILD_DRAW_FOUR;
-        penaltyChain = PENALTY_CHAIN.STACK;
-        penaltyAnchor = null;
       }
+      drawStackType = ACTIONS.WILD_DRAW_FOUR;
+      penaltyChain = PENALTY_CHAIN.STACK;
+      penaltyAnchor = null;
     } else if (pendingDraw > 0 && st === null) {
       // Playing a non-penalty card while penalty active should not happen via isPlayable.
     }
@@ -819,18 +878,47 @@ export function chooseAIMove(state, playerIndex) {
   return moves[0] ?? { type: "draw", amount: 1 };
 }
 
+const SPRITE_EXTENSIONS = ["jpg", "png", "webp", "jpeg"];
+
+function spriteVariants(baseName) {
+  return SPRITE_EXTENSIONS.map((ext) => `${baseName}.${ext}`);
+}
+
+function dedupeSprites(files) {
+  return [...new Set(files)];
+}
+
 export function spriteCandidates(card) {
   if (!card) return [];
-  if (card.value === ACTIONS.WILD) return ["Wild.jpg"];
-  if (card.value === ACTIONS.WILD_DRAW_FOUR) return ["Wild_Draw_4.jpg"];
+  if (card.value === ACTIONS.WILD) return spriteVariants("Wild");
+  if (card.value === ACTIONS.WILD_DRAW_FOUR) return spriteVariants("Wild_Draw_4");
 
   const color = card.color;
   const value = card.value;
-  if (typeof value === "number") return [`${color}_${value}.jpg`];
-  if (value === ACTIONS.SKIP) return [`${color}_Skip.jpg`];
+  if (typeof value === "number") return spriteVariants(`${color}_${value}`);
+  if (value === ACTIONS.SKIP) return spriteVariants(`${color}_Skip`);
   if (value === ACTIONS.REVERSE) {
-    return [`${color}_Reverse.jpg`, `${color.toUpperCase()}_Reverse.jpg`];
+    return dedupeSprites([
+      ...spriteVariants(`${color}_Reverse`),
+      ...spriteVariants(`${color.toUpperCase()}_Reverse`),
+    ]);
   }
-  if (value === ACTIONS.DRAW_TWO) return [`${color}_Draw_2.jpg`];
+  if (value === ACTIONS.DRAW_TWO) return spriteVariants(`${color}_Draw_2`);
   return [];
+}
+
+export function allSpriteCandidates() {
+  const files = [];
+  files.push(...spriteVariants("Wild"));
+  files.push(...spriteVariants("Wild_Draw_4"));
+  for (const color of COLORS) {
+    for (let n = 0; n <= 9; n += 1) {
+      files.push(...spriteVariants(`${color}_${n}`));
+    }
+    files.push(...spriteVariants(`${color}_Skip`));
+    files.push(...spriteVariants(`${color}_Draw_2`));
+    files.push(...spriteVariants(`${color}_Reverse`));
+    files.push(...spriteVariants(`${color.toUpperCase()}_Reverse`));
+  }
+  return dedupeSprites(files);
 }

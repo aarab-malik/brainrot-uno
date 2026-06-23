@@ -18,6 +18,7 @@ export function attachGameServer(httpServer) {
     socket.on("set-starting-hand", (handSize, cb) =>
       rooms.setStartingHandSize(socket, handSize, cb)
     );
+    socket.on("set-room-rules", (rules, cb) => rooms.setRoomRules(socket, rules, cb));
     socket.on("join-room", ({ code, name }, cb) => rooms.joinRoom(socket, code, name, cb));
     socket.on("resume-room", (payload, cb) => rooms.resumeRoom(socket, payload, cb));
     socket.on("rejoin-room", (payload, cb) => rooms.rejoinRoom(socket, payload, cb));

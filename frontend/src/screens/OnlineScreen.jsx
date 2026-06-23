@@ -1,11 +1,61 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  DEFAULT_GAME_RULES,
   MAX_PLAYERS,
   MIN_PLAYERS,
   MIN_STARTING_HAND,
   STARTING_HAND_SIZE,
   maxStartingHandForPlayers,
+  normalizeGameRules,
 } from "@shared/gameLogic.js";
+
+const RULE_TOGGLES = [
+  {
+    key: "allowDrawTwoOnDrawTwo",
+    title: "1. Allow +2 on +2",
+    detail:
+      "If off, a player hit by +2 cannot counter with +2 and must draw +2.",
+  },
+  {
+    key: "allowDrawTwoOnDrawFour",
+    title: "2. Allow +2 on +4",
+    detail:
+      "If on, +2 can counter +4 only when its color matches the color chosen by the +4.",
+  },
+  {
+    key: "allowDrawFourOnDrawTwo",
+    title: "3. Allow +4 on +2",
+    detail: "If on, +4 can counter +2 and passes +6 to the next player.",
+  },
+  {
+    key: "allowDrawFourOnDrawFour",
+    title: "4. Allow +4 on +4",
+    detail: "If off, a player hit by +4 must draw and cannot counter with +4.",
+  },
+  {
+    key: "drawTwoSkipsTurn",
+    title: "5. Drawing +2 skips turn",
+    detail:
+      "If on, drawing a +2 penalty ends your turn immediately.",
+  },
+  {
+    key: "drawFourSkipsTurn",
+    title: "6. Drawing +4 skips turn",
+    detail:
+      "If on, drawing a +4 penalty ends your turn immediately.",
+  },
+  {
+    key: "allowSkipReverseOnDrawTwo",
+    title: "7. Allow Skip/Reverse on +2",
+    detail:
+      "If on, draw +2 can be skipped to the next player/reversed to the previous player only if their color matches the +2.",
+  },
+];
+
+function rulesEqual(a, b) {
+  const keys = Object.keys(DEFAULT_GAME_RULES);
+  return keys.every((key) => !!a?.[key] === !!b?.[key]);
+}
 
 export default function OnlineScreen({
   connected,
@@ -19,6 +69,7 @@ export default function OnlineScreen({
   onStartGame,
   onSetMaxPlayers,
   onSetStartingHandSize,
+  onSetRoomRules,
   onLeaveLobby,
   onEnterGame,
   gamePayload,
@@ -29,7 +80,10 @@ export default function OnlineScreen({
   const [startingHandSize, setStartingHandSize] = useState(STARTING_HAND_SIZE);
   const [publicUrl, setPublicUrl] = useState(null);
   const [view, setView] = useState("pick");
+  const [lobbyView, setLobbyView] = useState("main");
   const [busy, setBusy] = useState(false);
+  const [rulesBusy, setRulesBusy] = useState(false);
+  const [draftRules, setDraftRules] = useState(() => normalizeGameRules(DEFAULT_GAME_RULES));
 
   const hostMaxHand = useMemo(() => maxStartingHandForPlayers(maxPlayers), [maxPlayers]);
 
@@ -42,6 +96,14 @@ export default function OnlineScreen({
       setView("lobby");
       if (lobby.maxPlayers) setMaxPlayers(lobby.maxPlayers);
       if (lobby.startingHandSize) setStartingHandSize(lobby.startingHandSize);
+      setDraftRules(normalizeGameRules(lobby.rules ?? DEFAULT_GAME_RULES));
+    }
+  }, [lobby]);
+
+  useEffect(() => {
+    if (!lobby) {
+      setLobbyView("main");
+      setDraftRules(normalizeGameRules(DEFAULT_GAME_RULES));
     }
   }, [lobby]);
 
@@ -105,14 +167,111 @@ export default function OnlineScreen({
     }
   }
 
+  function changeRule(ruleKey, value) {
+    const nextRules = normalizeGameRules({
+      ...draftRules,
+      [ruleKey]: value,
+    });
+    setDraftRules(nextRules);
+  }
+
+  async function saveRules() {
+    if (!lobby || lobby.hostId !== myPlayerId || !onSetRoomRules) return;
+    setRulesBusy(true);
+    const res = await onSetRoomRules(draftRules);
+    setRulesBusy(false);
+    if (res?.rules) {
+      setDraftRules(normalizeGameRules(res.rules));
+    }
+  }
+
   if (lobby) {
     const isHost = lobby.hostId === myPlayerId;
     const filled = lobby.players.length;
     const cap = lobby.maxPlayers ?? MAX_PLAYERS;
     const handCap = lobby.maxStartingHand ?? maxStartingHandForPlayers(cap);
     const handSize = lobby.startingHandSize ?? startingHandSize;
+    const activeRules = normalizeGameRules(lobby.rules ?? DEFAULT_GAME_RULES);
+    const isRulesDirty = !rulesEqual(draftRules, activeRules);
     const canStart = filled >= MIN_PLAYERS;
     const sortedPlayers = [...lobby.players].sort((a, b) => a.slot - b.slot);
+
+    if (lobbyView === "rules") {
+      return (
+        <div className="party-screen lobby-screen">
+          <button type="button" className="party-back" onClick={onLeaveLobby}>
+            ← Leave room
+          </button>
+
+          <div className="party-stage lobby-stage">
+            <div className="lobby-card lobby-card-wide lobby-rules-card">
+              <p className="party-kicker">Room lobby</p>
+              <h2 className="lobby-heading rules-heading">
+                Customize Rules
+                {isHost && isRulesDirty ? <span className="rules-unsaved-badge">Unsaved changes</span> : null}
+              </h2>
+              <p className="lobby-hint">
+                {isHost
+                  ? "Toggle any combination before starting the match."
+                  : "Host controls the toggles. You can view current rule setup here."}
+              </p>
+
+              <ul className="rules-toggle-list">
+                {RULE_TOGGLES.map((rule) => (
+                  <li key={rule.key}>
+                    <label className={`rule-toggle ${!isHost ? "read-only" : ""}`}>
+                      <input
+                        className="rule-toggle-input"
+                        type="checkbox"
+                        checked={!!draftRules[rule.key]}
+                        disabled={!isHost || rulesBusy}
+                        onChange={(e) => changeRule(rule.key, e.target.checked)}
+                      />
+                      <span className="rule-toggle-switch" aria-hidden />
+                      <span className="rule-toggle-copy">
+                        <strong>{rule.title}</strong>
+                        <span>{rule.detail}</span>
+                      </span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+
+              {isHost ? (
+                <p className="party-hint rules-saving-hint">
+                  {rulesBusy
+                    ? "Saving rules…"
+                    : isRulesDirty
+                      ? "You have unsaved rule changes."
+                      : "Rules are up to date for everyone in this lobby."}
+                </p>
+              ) : null}
+
+              <div className="rules-actions">
+                {isHost ? (
+                  <button
+                    type="button"
+                    className="party-btn party-btn-primary party-btn-wide"
+                    disabled={rulesBusy || !isRulesDirty}
+                    onClick={saveRules}
+                  >
+                    {rulesBusy ? "Saving…" : "Save Rules"}
+                  </button>
+                ) : null}
+
+                <button
+                  type="button"
+                  className="party-btn party-btn-ghost party-btn-wide"
+                  onClick={() => setLobbyView("main")}
+                >
+                  Back to room
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div className="party-screen lobby-screen">
@@ -248,6 +407,14 @@ export default function OnlineScreen({
               Starting hand: <strong>{handSize}</strong> cards per player
             </p>
           )}
+
+          <button
+            type="button"
+            className="party-btn party-btn-ghost party-btn-wide"
+            onClick={() => setLobbyView("rules")}
+          >
+            {isHost ? "Customize rules" : "View rules"}
+          </button>
 
           <h3 className="lobby-players-heading">In this room</h3>
           <ul className="lobby-players">
