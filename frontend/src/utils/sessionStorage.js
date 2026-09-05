@@ -1,9 +1,10 @@
 const SESSION_KEY = "uno-session";
 
-export function saveUnoSession({ code, slot, name }) {
+export function saveUnoSession({ code, slot, name, token }) {
   if (!code || !name) return;
   const payload = { code: code.toUpperCase(), name: name.trim() };
   if (slot != null) payload.slot = Number(slot);
+  if (token) payload.token = String(token);
   localStorage.setItem(SESSION_KEY, JSON.stringify(payload));
 }
 
@@ -18,6 +19,7 @@ export function loadUnoSession() {
       name: String(data.name),
     };
     if (data.slot != null) session.slot = Number(data.slot);
+    if (data.token) session.token = String(data.token);
     return session;
   } catch {
     return null;

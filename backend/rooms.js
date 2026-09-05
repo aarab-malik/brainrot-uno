@@ -1,5 +1,6 @@
 import {
   ACTIONS,
+  COLORS,
   applyCallUno,
   applyDraw,
   applyPassTurn,
@@ -18,11 +19,13 @@ import {
   clampStartingHandSize,
   maxStartingHandForPlayers,
 } from "../shared/gameLogic.js";
+import { randomUUID } from "node:crypto";
 import { serializeStateForPlayer, serializeStateForSpectator } from "./state.js";
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const AWAY_FOLD_MS = 60_000;
 const FOLD_CHECK_MS = 3_000;
+const EMPTY_ROOM_GRACE_MS = 5 * 60_000;
 
 function generateCode() {
   let code = "";
@@ -37,6 +40,7 @@ function makePlayer(socketId, name, slot) {
     id: socketId,
     name: name.trim() || `Player ${slot + 1}`,
     slot,
+    token: randomUUID(),
     connected: true,
     role: "player",
     folded: false,
@@ -54,10 +58,41 @@ export class RoomManager {
 
   destroy() {
     clearInterval(this.foldCheckInterval);
+    for (const room of this.rooms.values()) this.cancelCleanup(room);
   }
 
   getRoom(code) {
-    return this.rooms.get(code?.toUpperCase());
+    if (typeof code !== "string") return undefined;
+    return this.rooms.get(code.toUpperCase());
+  }
+
+  hasAnyoneConnected(room) {
+    return (
+      room.players.some((p) => p.id && p.connected) || (room.spectators?.length ?? 0) > 0
+    );
+  }
+
+  cancelCleanup(room) {
+    if (room.cleanupTimer) {
+      clearTimeout(room.cleanupTimer);
+      room.cleanupTimer = null;
+    }
+  }
+
+  /** Delete the room after a grace period if nobody is connected. */
+  scheduleCleanupIfEmpty(room) {
+    if (this.hasAnyoneConnected(room)) {
+      this.cancelCleanup(room);
+      return;
+    }
+    if (room.cleanupTimer) return;
+    room.cleanupTimer = setTimeout(() => {
+      room.cleanupTimer = null;
+      if (this.rooms.get(room.code) !== room) return;
+      if (this.hasAnyoneConnected(room)) return;
+      this.rooms.delete(room.code);
+    }, EMPTY_ROOM_GRACE_MS);
+    room.cleanupTimer.unref?.();
   }
 
   rosterPayload(room) {
@@ -79,7 +114,7 @@ export class RoomManager {
       targetSlot: room.voteKick.targetSlot,
       targetName: target?.name ?? `Player ${room.voteKick.targetSlot + 1}`,
       votes: room.voteKick.votes.size,
-      needed: this.votesNeeded(room),
+      needed: this.votesNeeded(room, room.voteKick.targetSlot),
     };
   }
 
@@ -155,12 +190,17 @@ export class RoomManager {
     );
   }
 
-  votesNeeded(room) {
-    const n = this.connectedVoters(room).length;
-    return Math.max(1, Math.ceil(n / 2));
+  /** Strict majority of connected, non-target voters; never fewer than 2. */
+  votesNeeded(room, targetSlot) {
+    const n = this.connectedVoters(room).filter((p) => p.slot !== targetSlot).length;
+    return Math.max(2, Math.floor(n / 2) + 1);
   }
 
   hostRoom(socket, { name, maxPlayers: rawMax, startingHandSize: rawHand, rules: rawRules }, callback) {
+    if (this.socketToRoom.has(socket.id)) {
+      callback?.({ ok: false, error: "Leave your current room first." });
+      return;
+    }
     let code = generateCode();
     while (this.rooms.has(code)) code = generateCode();
 
@@ -180,6 +220,7 @@ export class RoomManager {
       gameState: null,
       originalNames: null,
       voteKick: null,
+      cleanupTimer: null,
     };
 
     const player = makePlayer(socket.id, name, 0);
@@ -188,10 +229,11 @@ export class RoomManager {
     this.socketToRoom.set(socket.id, code);
     socket.join(code);
 
-    callback({
+    callback?.({
       ok: true,
       code,
       playerId: socket.id,
+      token: player.token,
       slot: 0,
       maxPlayers,
       startingHandSize,
@@ -239,29 +281,29 @@ export class RoomManager {
     this.emitLobby(room);
   }
 
-  joinRoom(socket, code, name, callback) {
+  joinRoom(socket, code, name, callback, token = null) {
     const room = this.getRoom(code);
     if (!room) {
-      callback({ ok: false, error: "Room not found. Check the code." });
+      callback?.({ ok: false, error: "Room not found. Check the code." });
       return;
     }
 
     if (room.status === "playing") {
-      this.rejoinRoom(socket, { code: room.code, name }, callback);
+      this.rejoinRoom(socket, { code: room.code, name, token }, callback);
       return;
     }
 
     if (room.players.length >= room.maxPlayers) {
-      callback({ ok: false, error: `Room is full (${room.maxPlayers} players max).` });
+      callback?.({ ok: false, error: `Room is full (${room.maxPlayers} players max).` });
       return;
     }
     if (room.players.some((p) => p.id === socket.id)) {
-      callback({ ok: false, error: "Already in this room." });
+      callback?.({ ok: false, error: "Already in this room." });
       return;
     }
     const trimmed = (name || "").trim();
     if (room.players.some((p) => p.name === trimmed)) {
-      callback({ ok: false, error: "That name is taken in this room." });
+      callback?.({ ok: false, error: "That name is taken in this room." });
       return;
     }
 
@@ -271,10 +313,18 @@ export class RoomManager {
 
     const player = makePlayer(socket.id, name, slot);
     room.players.push(player);
-    this.socketToRoom.set(socket.id, code);
+    this.socketToRoom.set(socket.id, room.code);
     socket.join(room.code);
+    this.cancelCleanup(room);
 
-    callback({ ok: true, code: room.code, playerId: socket.id, slot, maxPlayers: room.maxPlayers });
+    callback?.({
+      ok: true,
+      code: room.code,
+      playerId: socket.id,
+      token: player.token,
+      slot,
+      maxPlayers: room.maxPlayers,
+    });
     this.emitLobby(room);
   }
 
@@ -288,6 +338,7 @@ export class RoomManager {
     room.spectators.push({ id: socket.id, name: trimmed });
     this.socketToRoom.set(socket.id, room.code);
     socket.join(room.code);
+    this.cancelCleanup(room);
     return trimmed;
   }
 
@@ -302,6 +353,7 @@ export class RoomManager {
     player.role = "player";
     this.socketToRoom.set(socket.id, room.code);
     socket.join(room.code);
+    this.cancelCleanup(room);
   }
 
   canReclaimSeat(room, player) {
@@ -310,14 +362,14 @@ export class RoomManager {
     return Date.now() - player.awaySince < AWAY_FOLD_MS;
   }
 
-  rejoinRoom(socket, { code, name }, callback) {
+  rejoinRoom(socket, { code, name, token } = {}, callback) {
     const room = this.getRoom(code);
     if (!room) {
       callback?.({ ok: false, error: "Room not found." });
       return;
     }
 
-    const trimmed = (name || "").trim();
+    const trimmed = (typeof name === "string" ? name : "").trim();
     if (!trimmed) {
       callback?.({ ok: false, error: "Enter your name." });
       return;
@@ -332,8 +384,28 @@ export class RoomManager {
     const meta = this.gameMeta(room);
 
     if (existing) {
+      // The seat belongs to whoever holds its reconnect token. Anyone else spectates.
+      const ownsSeat = typeof token === "string" && token.length > 0 && token === existing.token;
+      if (!ownsSeat) {
+        this.addSpectator(socket, room, trimmed);
+        const view = serializeStateForSpectator(ensureActiveCurrentPlayer(room.gameState));
+        callback?.({
+          ok: true,
+          code: room.code,
+          playerId: socket.id,
+          slot: null,
+          playing: true,
+          isSpectator: true,
+          state: view,
+          message: "You are spectating — that seat belongs to another player.",
+          ...meta,
+        });
+        this.emitGameState(room);
+        return;
+      }
+
       if (existing.folded || !this.canReclaimSeat(room, existing)) {
-        const specName = this.addSpectator(socket, room, trimmed);
+        this.addSpectator(socket, room, trimmed);
         const view = serializeStateForSpectator(ensureActiveCurrentPlayer(room.gameState));
         callback?.({
           ok: true,
@@ -356,6 +428,7 @@ export class RoomManager {
         ok: true,
         code: room.code,
         playerId: socket.id,
+        token: existing.token,
         slot: existing.slot,
         playing: true,
         isSpectator: false,
@@ -410,6 +483,7 @@ export class RoomManager {
       const nextHost = room.players.find((p) => p.id && p.connected && !p.folded);
       if (nextHost) room.hostId = nextHost.id;
     }
+    this.scheduleCleanupIfEmpty(room);
   }
 
   kickPlayer(room, slot) {
@@ -443,6 +517,7 @@ export class RoomManager {
       name: player.name,
       message: `${player.name}'s cards were returned to the draw pile.`,
     });
+    this.scheduleCleanupIfEmpty(room);
     this.emitGameState(room);
   }
 
@@ -492,7 +567,7 @@ export class RoomManager {
       room.voteKick.votes.add(socket.id);
     }
 
-    const needed = this.votesNeeded(room);
+    const needed = this.votesNeeded(room, targetSlot);
     if (room.voteKick.votes.size >= needed) {
       this.kickPlayer(room, targetSlot);
       room.voteKick = null;
@@ -545,7 +620,10 @@ export class RoomManager {
     if (spectator) {
       this.removeSpectatorBySocket(room, socket.id);
       if (room.players.length === 0 && (room.spectators?.length ?? 0) === 0) {
+        this.cancelCleanup(room);
         this.rooms.delete(code);
+      } else {
+        this.scheduleCleanupIfEmpty(room);
       }
       return;
     }
@@ -563,9 +641,11 @@ export class RoomManager {
     room.players = room.players.filter((p) => p.id !== socket.id);
 
     if (room.players.length === 0 && (room.spectators?.length ?? 0) === 0) {
+      this.cancelCleanup(room);
       this.rooms.delete(code);
       return;
     }
+    this.scheduleCleanupIfEmpty(room);
 
     if (room.hostId === socket.id) {
       room.hostId = room.players.find((p) => p.id)?.id ?? room.players[0]?.id;
@@ -578,16 +658,16 @@ export class RoomManager {
     const code = this.socketToRoom.get(socket.id);
     const room = code ? this.rooms.get(code) : null;
     if (!room) {
-      callback({ ok: false, error: "Not in a room." });
+      callback?.({ ok: false, error: "Not in a room." });
       return;
     }
     if (room.hostId !== socket.id) {
-      callback({ ok: false, error: "Only the host can start." });
+      callback?.({ ok: false, error: "Only the host can start." });
       return;
     }
     const count = room.players.length;
     if (count < MIN_PLAYERS) {
-      callback({ ok: false, error: `Need at least ${MIN_PLAYERS} players.` });
+      callback?.({ ok: false, error: `Need at least ${MIN_PLAYERS} players.` });
       return;
     }
 
@@ -605,7 +685,7 @@ export class RoomManager {
     room.voteKick = null;
     room.gameState = makeInitialGameState(count, room.startingHandSize, room.rules);
 
-    callback({ ok: true });
+    callback?.({ ok: true });
     this.io.to(code).emit("game-started", {
       playerNames: room.players.map((p) => p.name),
     });
@@ -758,15 +838,24 @@ export class RoomManager {
         nextState = applyPassTurn(state, slot);
       } else if (action.type === "play") {
         const { cardIndex, chosenColor } = action;
+        const hand = state.hands[slot];
+        if (
+          !Number.isInteger(cardIndex) ||
+          !Array.isArray(hand) ||
+          cardIndex < 0 ||
+          cardIndex >= hand.length
+        ) {
+          callback?.({ ok: false, error: "Invalid card." });
+          return;
+        }
+        if (chosenColor != null && !COLORS.includes(chosenColor)) {
+          callback?.({ ok: false, error: "Invalid color." });
+          return;
+        }
         const moves = getValidMoves(state, slot);
         const playMove = moves.find((m) => m.type === "play" && m.cardIndex === cardIndex);
         if (!playMove) {
           callback?.({ ok: false, error: "Invalid play." });
-          return;
-        }
-        const hand = state.hands[slot];
-        if (!Array.isArray(hand) || cardIndex < 0 || cardIndex >= hand.length) {
-          callback?.({ ok: false, error: "Invalid card." });
           return;
         }
         const card = hand[cardIndex];
@@ -810,6 +899,7 @@ export class RoomManager {
     if (spectator) {
       this.removeSpectatorBySocket(room, socket.id);
       this.socketToRoom.delete(socket.id);
+      this.scheduleCleanupIfEmpty(room);
       return;
     }
 

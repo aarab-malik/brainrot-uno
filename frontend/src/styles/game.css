@@ -682,12 +682,13 @@
   transform: rotate(calc(var(--k) * var(--tilt))) translateY(calc(var(--abs) * var(--dip) - 6px));
   cursor: not-allowed;
 }
-.human-card-wrap.blocked-hover .card {
-  opacity: 0.7;
+/* unplayable cards stay fully opaque; they just sit back and read darker */
+.human-card-wrap .card-dim {
+  opacity: 1;
+  filter: brightness(0.62) saturate(0.85) drop-shadow(0 8px 10px rgba(50, 0, 0, 0.55));
 }
-.card-dim {
-  opacity: 0.72;
-  filter: saturate(0.75) brightness(0.9) drop-shadow(0 8px 10px rgba(50, 0, 0, 0.55));
+.human-card-wrap.blocked-hover .card {
+  filter: brightness(0.72) saturate(0.85) drop-shadow(0 8px 10px rgba(50, 0, 0, 0.55));
 }
 
 .spectator-panel {
@@ -816,14 +817,6 @@
   box-shadow: 0 6px 0 rgba(0, 0, 0, 0.45);
   overflow: hidden;
   transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out);
-}
-.wild-swatch::before {
-  content: "";
-  position: absolute;
-  inset: 18% -30%;
-  border-radius: 50%;
-  border: 4px solid rgba(255, 255, 255, 0.55);
-  transform: rotate(-30deg);
 }
 .wild-swatch span {
   position: relative;

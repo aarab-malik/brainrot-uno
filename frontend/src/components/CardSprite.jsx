@@ -35,7 +35,21 @@ function cornerText(card) {
 
 /* ---- centre glyphs ------------------------------------------------- */
 
-function Numeral({ value }) {
+const SHADOW = "rgba(23,24,28,0.9)";
+
+/* every centre glyph: a hard black offset shadow, then the glyph in the card colour */
+function Shadowed({ children, dx = 2.5, dy = 2.5 }) {
+  return (
+    <>
+      <g transform={`translate(${dx} ${dy})`} fill={SHADOW} stroke={SHADOW} style={{ color: SHADOW }}>
+        {children(SHADOW)}
+      </g>
+      {children(null)}
+    </>
+  );
+}
+
+function Numeral({ value, ink }) {
   const underline = value === 6 || value === 9;
   const common = {
     x: 50,
@@ -44,92 +58,96 @@ function Numeral({ value }) {
     dominantBaseline: "central",
     fontFamily: FONT,
     fontWeight: 800,
-    fontSize: 70,
+    fontSize: 78,
     style: { letterSpacing: "-0.04em" },
   };
   return (
-    <>
-      {/* offset dark shadow, then white numeral with a dark edge */}
-      <text {...common} transform="translate(3 3)" fill={DARK} opacity="0.55">
-        {value}
-      </text>
-      <text {...common} fill="#fff" stroke={DARK} strokeWidth="2.5" paintOrder="stroke fill">
-        {value}
-      </text>
-      {underline ? <rect x="37" y="106" width="26" height="5" rx="2" fill="#fff" stroke={DARK} strokeWidth="1.5" /> : null}
-    </>
+    <Shadowed dx={3} dy={3}>
+      {(sh) => (
+        <>
+          <text {...common} fill={sh ?? ink} stroke={sh ?? DARK} strokeWidth={sh ? 2 : 1.5} paintOrder="stroke fill">
+            {value}
+          </text>
+          {underline ? <rect x="36" y="110" width="28" height="5" rx="2" fill={sh ?? ink} stroke={sh ?? DARK} strokeWidth="1.2" /> : null}
+        </>
+      )}
+    </Shadowed>
   );
 }
 
-function SkipGlyph() {
+function SkipGlyph({ ink }) {
   return (
-    <g fill="none" strokeLinecap="round">
-      <g stroke={DARK} strokeWidth="14" opacity="0.5" transform="translate(3 3)">
-        <circle cx="50" cy="75" r="20" />
-        <line x1="36" y1="61" x2="64" y2="89" />
-      </g>
-      <g stroke={DARK} strokeWidth="13">
-        <circle cx="50" cy="75" r="20" />
-        <line x1="36" y1="61" x2="64" y2="89" />
-      </g>
-      <g stroke="#fff" strokeWidth="8">
-        <circle cx="50" cy="75" r="20" />
-        <line x1="36" y1="61" x2="64" y2="89" />
-      </g>
-    </g>
+    <Shadowed>
+      {(sh) => (
+        <g fill="none" strokeLinecap="butt">
+          <g stroke={sh ?? DARK} strokeWidth="14">
+            <circle cx="50" cy="75" r="22" />
+            <line x1="35" y1="60" x2="65" y2="90" />
+          </g>
+          {sh ? null : (
+            <g stroke={ink} strokeWidth="10">
+              <circle cx="50" cy="75" r="22" />
+              <line x1="35" y1="60" x2="65" y2="90" />
+            </g>
+          )}
+        </g>
+      )}
+    </Shadowed>
   );
 }
 
-function ReverseGlyph() {
-  const d1 = "M32 62 h26 l-6 -9 h9 l11 15 -11 15 h-9 l6 -9 h-26 z";
-  const d2 = "M68 88 h-26 l6 9 h-9 l-11 -15 11 -15 h9 l-6 9 h26 z";
+function ReverseGlyph({ ink }) {
+  const d1 = "M30 60 h28 l-7 -10 h11 l13 17 -13 17 h-11 l7 -10 h-28 z";
+  const d2 = "M70 90 h-28 l7 10 h-11 l-13 -17 13 -17 h11 l-7 10 h28 z";
   return (
-    <g>
-      <g fill={DARK} opacity="0.5" transform="translate(3 3)">
-        <path d={d1} />
-        <path d={d2} />
-      </g>
-      <g fill="#fff" stroke={DARK} strokeWidth="2.5" strokeLinejoin="round" paintOrder="stroke fill">
-        <path d={d1} />
-        <path d={d2} />
-      </g>
-    </g>
+    <Shadowed dx={3} dy={3}>
+      {(sh) => (
+        <g fill={sh ?? ink} stroke={sh ?? DARK} strokeWidth="1.8" strokeLinejoin="round" paintOrder="stroke fill">
+          <path d={d1} />
+          <path d={d2} />
+        </g>
+      )}
+    </Shadowed>
   );
 }
 
-function MiniCard({ x, y, r, fill }) {
+function MiniCard({ x, y, r, fill, sh }) {
   return (
     <rect
       x={x}
       y={y}
-      width="18"
-      height="27"
-      rx="3"
-      fill={fill}
-      stroke="#fff"
-      strokeWidth="3"
-      transform={`rotate(${r} ${x + 9} ${y + 13.5})`}
-      style={{ filter: "drop-shadow(2px 2px 0 rgba(23,24,28,0.5))" }}
+      width="20"
+      height="30"
+      rx="2.5"
+      fill={sh ?? fill}
+      stroke={sh ?? DARK}
+      strokeWidth={sh ? 4 : 1.8}
+      transform={`rotate(${r} ${x + 10} ${y + 15})`}
     />
   );
 }
 
-function DrawTwoGlyph({ fill }) {
+function DrawTwoGlyph({ ink }) {
   return (
-    <g>
-      <MiniCard x={37} y={58} r={-12} fill={fill} />
-      <MiniCard x={47} y={64} r={8} fill={fill} />
-    </g>
+    <Shadowed>
+      {(sh) => (
+        <g>
+          <MiniCard x={33} y={54} r={-18} fill={ink} sh={sh} />
+          <MiniCard x={47} y={66} r={-18} fill={ink} sh={sh} />
+        </g>
+      )}
+    </Shadowed>
   );
 }
 
 function WildGlyph() {
-  // four quadrant ellipse, printed on the ink-black card
+  // the four-colour ellipse sits inside the white one on a black card
   const clipId = useId();
   return (
     <g transform="rotate(-32 50 75)">
+      <ellipse cx="50" cy="75" rx="27" ry="40" fill={SHADOW} transform="translate(2 2)" />
       <clipPath id={clipId}>
-        <ellipse cx="50" cy="75" rx="30" ry="42" />
+        <ellipse cx="50" cy="75" rx="27" ry="40" />
       </clipPath>
       <g clipPath={`url(#${clipId})`}>
         <rect x="20" y="33" width="30" height="42" fill={INK.Red} />
@@ -137,18 +155,33 @@ function WildGlyph() {
         <rect x="20" y="75" width="30" height="42" fill={INK.Yellow} />
         <rect x="50" y="75" width="30" height="42" fill={INK.Green} />
       </g>
-      <ellipse cx="50" cy="75" rx="30" ry="42" fill="none" stroke="#fff" strokeWidth="4" />
     </g>
   );
 }
 
 function WildDrawFourGlyph() {
   return (
-    <g>
-      <MiniCard x={30} y={56} r={-16} fill={INK.Red} />
-      <MiniCard x={41} y={60} r={-5} fill={INK.Blue} />
-      <MiniCard x={51} y={62} r={6} fill={INK.Green} />
-      <MiniCard x={60} y={66} r={16} fill={INK.Yellow} />
+    <Shadowed>
+      {(sh) => (
+        <g>
+          <MiniCard x={26} y={56} r={-18} fill={INK.Blue} sh={sh} />
+          <MiniCard x={42} y={50} r={-18} fill={INK.Green} sh={sh} />
+          <MiniCard x={36} y={72} r={-18} fill={INK.Red} sh={sh} />
+          <MiniCard x={52} y={66} r={-18} fill={INK.Yellow} sh={sh} />
+        </g>
+      )}
+    </Shadowed>
+  );
+}
+
+function CornerWildDot({ x, y }) {
+  return (
+    <g transform={`translate(${x} ${y}) rotate(-32)`}>
+      <ellipse cx="0" cy="0" rx="5.5" ry="7.5" fill="#fff" />
+      <path d="M0 -7.5 A5.5 7.5 0 0 0 -5.5 0 L0 0 Z" fill={INK.Red} />
+      <path d="M0 -7.5 A5.5 7.5 0 0 1 5.5 0 L0 0 Z" fill={INK.Blue} />
+      <path d="M-5.5 0 A5.5 7.5 0 0 0 0 7.5 L0 0 Z" fill={INK.Yellow} />
+      <path d="M5.5 0 A5.5 7.5 0 0 1 0 7.5 L0 0 Z" fill={INK.Green} />
     </g>
   );
 }
@@ -157,10 +190,10 @@ function CentreGlyph({ card, ink }) {
   const v = card.value;
   if (v === ACTIONS.WILD) return <WildGlyph />;
   if (v === ACTIONS.WILD_DRAW_FOUR) return <WildDrawFourGlyph />;
-  if (typeof v === "number") return <Numeral value={v} />;
-  if (v === ACTIONS.SKIP) return <SkipGlyph />;
-  if (v === ACTIONS.REVERSE) return <ReverseGlyph />;
-  if (v === ACTIONS.DRAW_TWO) return <DrawTwoGlyph fill={ink} />;
+  if (typeof v === "number") return <Numeral value={v} ink={ink} />;
+  if (v === ACTIONS.SKIP) return <SkipGlyph ink={ink} />;
+  if (v === ACTIONS.REVERSE) return <ReverseGlyph ink={ink} />;
+  if (v === ACTIONS.DRAW_TWO) return <DrawTwoGlyph ink={ink} />;
   return null;
 }
 
@@ -168,36 +201,42 @@ function CentreGlyph({ card, ink }) {
 
 function CardFront({ card }) {
   const ink = inkFor(card);
-  const isWild = card.value === ACTIONS.WILD || card.value === ACTIONS.WILD_DRAW_FOUR;
+  const isWild = card.value === ACTIONS.WILD;
   const corner = cornerText(card);
-  const cornerSize = corner.length > 1 ? 16 : 20;
+  const cornerSize = corner.length > 1 ? 15 : 19;
   const cornerProps = {
     fontFamily: FONT,
     fontWeight: 800,
     fontSize: cornerSize,
     fill: "#fff",
     stroke: DARK,
-    strokeWidth: 1.6,
+    strokeWidth: 1.2,
     paintOrder: "stroke fill",
     dominantBaseline: "hanging",
   };
 
   return (
     <svg viewBox="0 0 100 150" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-      {/* white card stock, coloured face inset */}
+      {/* white card stock, coloured face inset, big white ellipse like the printed deck */}
       <rect x="0.5" y="0.5" width="99" height="149" rx="9" fill="#fff" stroke="rgba(0,0,0,0.35)" strokeWidth="1" />
       <rect x="6" y="6" width="88" height="138" rx="6" fill={ink} />
-      {/* the modern UNO ellipse: a white outline, tilted */}
-      {!isWild ? (
-        <ellipse cx="50" cy="75" rx="30" ry="44" fill="none" stroke="#fff" strokeWidth="4.5" transform="rotate(-32 50 75)" />
-      ) : null}
+      <ellipse cx="50" cy="75" rx="33" ry="51" fill="#fff" transform="rotate(-32 50 75)" />
       <CentreGlyph card={card} ink={ink} />
-      <text x="11" y="11" {...cornerProps}>
-        {corner}
-      </text>
-      <text x="89" y="139" {...cornerProps} transform="rotate(180 89 146)">
-        {corner}
-      </text>
+      {isWild ? (
+        <>
+          <CornerWildDot x={17} y={19} />
+          <CornerWildDot x={83} y={131} />
+        </>
+      ) : (
+        <>
+          <text x="11" y="10" {...cornerProps}>
+            {corner}
+          </text>
+          <text x="89" y="140" {...cornerProps} transform="rotate(180 89 147)">
+            {corner}
+          </text>
+        </>
+      )}
     </svg>
   );
 }

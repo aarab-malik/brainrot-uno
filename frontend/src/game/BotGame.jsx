@@ -83,7 +83,9 @@ export default function BotGame({ playerCount, startingHandSize = 8, onExit, onC
   );
 
   const stateRef = useRef(state);
-  stateRef.current = state;
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   const runAnimatedDraws = useCallback(
     async (playerIndex, amount) => {

@@ -361,10 +361,21 @@ export function foldSlotIntoDrawPile(state, slot) {
   };
 
   if (next.currentPlayer === slot) {
+    // The folding player owed any pending penalty / draw-then-pass window; drop it.
     next = {
       ...next,
+      mayPassAfterDraw: false,
+      pendingDraw: 0,
+      drawStackType: null,
+      penaltyChainMode: null,
+      penaltyAnchorColor: null,
       currentPlayer: nextActivePlayerIndex(slot, next.direction, next, 1),
     };
+  }
+
+  const remaining = getActivePlayerSlots(next);
+  if (remaining.length === 1 && next.winner === null) {
+    next = { ...next, winner: remaining[0], currentPlayer: remaining[0] };
   }
 
   return next;
@@ -699,10 +710,16 @@ export function applyDraw(state, playerIndex, amount) {
 }
 
 export function applyPlay(state, playerIndex, cardIndex, chosenColor = null) {
+  if (chosenColor != null && !COLORS.includes(chosenColor)) {
+    throw new Error("Invalid color.");
+  }
   const working = closeUnoWindowForOtherPlayer(state, playerIndex);
   const hands = working.hands.map((h) => [...handAsArray(h)]);
   const hand = hands[playerIndex];
   const card = hand[cardIndex];
+  if (!card) {
+    throw new Error("Invalid card.");
+  }
   hand.splice(cardIndex, 1);
 
   const topCard = isWild(card) ? { ...card, color: chosenColor ?? COLORS[0] } : card;
@@ -738,7 +755,12 @@ export function applyPlay(state, playerIndex, cardIndex, chosenColor = null) {
 
     if (pendingDraw === 0) {
       if (card.value === ACTIONS.REVERSE) {
-        direction *= -1;
+        if (getActivePlayerSlots(working).length === 2) {
+          // Two players left: Reverse acts as Skip.
+          stepAdvance = 2;
+        } else {
+          direction *= -1;
+        }
       } else if (card.value === ACTIONS.SKIP) {
         stepAdvance = 2;
       }
@@ -763,8 +785,6 @@ export function applyPlay(state, playerIndex, cardIndex, chosenColor = null) {
       drawStackType = ACTIONS.WILD_DRAW_FOUR;
       penaltyChain = PENALTY_CHAIN.STACK;
       penaltyAnchor = null;
-    } else if (pendingDraw > 0 && st === null) {
-      // Playing a non-penalty card while penalty active should not happen via isPlayable.
     }
 
     if (pendingDraw > 0 && st !== null) {
@@ -774,9 +794,9 @@ export function applyPlay(state, playerIndex, cardIndex, chosenColor = null) {
     }
   }
 
-  let winner = hand.length === 0 ? playerIndex : null;
-  let unoPending = working.unoPending;
-  let unoMissed = working.unoMissed
+  const winner = hand.length === 0 ? playerIndex : null;
+  const unoPending = working.unoPending;
+  const unoMissed = working.unoMissed
     ? [...working.unoMissed]
     : emptyUnoMissed(getPlayerCount(working));
 
@@ -796,21 +816,6 @@ export function applyPlay(state, playerIndex, cardIndex, chosenColor = null) {
     lastMove: { type: "play", playerIndex, card, chosenColor: topCard.color },
   };
   next = syncUnoStateForHandSize(next, playerIndex);
-  unoPending = next.unoPending;
-  unoMissed = next.unoMissed;
-  next = { ...next, unoPending, unoMissed };
-
-  if (winner !== null && unoMissed[playerIndex]) {
-    unoMissed[playerIndex] = false;
-    next = { ...next, unoMissed, winner: null };
-    const penalized = applyDraw(next, playerIndex, 2);
-    return {
-      ...penalized,
-      currentPlayer: playerIndex,
-      turnCount: working.turnCount + 1,
-      lastMove: { type: "play", playerIndex, card, chosenColor: topCard.color, unoPenalty: true },
-    };
-  }
 
   if (winner !== null) {
     return {

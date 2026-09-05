@@ -28,8 +28,9 @@ export default function OnlineGame({
   const tableRef = useRef(null);
   const stateRef = useRef(initialState);
   const localDrawAnimatingRef = useRef(false);
-  const initialStateAppliedRef = useRef(false);
   const payloadQueueRef = useRef(Promise.resolve());
+  const applyMetaRef = useRef(null);
+  const enqueueRef = useRef(null);
 
   const {
     flight,
@@ -112,23 +113,24 @@ export default function OnlineGame({
   );
 
   useEffect(() => {
+    applyMetaRef.current = applyMeta;
+    enqueueRef.current = enqueueServerPayload;
+  }, [applyMeta, enqueueServerPayload]);
+
+  useEffect(() => {
     if (!info) return undefined;
     const timer = setTimeout(() => setInfo(null), 5000);
     return () => clearTimeout(timer);
   }, [info]);
 
   useEffect(() => {
-    if (initialState && !initialStateAppliedRef.current) {
-      initialStateAppliedRef.current = true;
-      setState(initialState);
+    if (gamePayload?.state) {
+      enqueueRef.current?.(gamePayload);
+    } else {
+      applyMetaRef.current?.(gamePayload);
     }
-  }, [initialState]);
-
-  useEffect(() => {
-    applyMeta(gamePayload);
-    if (gamePayload?.state) enqueueServerPayload(gamePayload);
     if (gamePayload?.message) setInfo(gamePayload.message);
-  }, [gamePayload, applyMeta, enqueueServerPayload]);
+  }, [gamePayload]);
 
   useEffect(() => {
     const socket = socketRef.current;
@@ -157,22 +159,23 @@ export default function OnlineGame({
           resolve({ ok: false, error: "Disconnected" });
           return;
         }
-        socket.emit("game-action", action, (res) => {
+        socket.timeout(5000).emit("game-action", action, (err, ackRes) => {
+          const res = err ? { ok: false, error: "No response from server" } : ackRes;
           if (res?.ok && res.state) {
+            const meta = { roster: res.roster, voteKick: res.voteKick, hostId: res.hostId };
             if (applyState) {
-              setState(res.state);
-              setError(null);
+              // Same serialized queue as broadcasts, so there is a single state writer.
+              enqueueServerPayload({ state: res.state, ...meta });
+            } else {
+              applyMeta(meta);
             }
-            if (res.roster) setRoster(res.roster);
-            if (res.voteKick !== undefined) setVoteKick(res.voteKick);
-            if (res.hostId) setHostId(res.hostId);
           } else if (!res?.ok) {
             setError(res?.error ?? "Move failed");
           }
           resolve(res);
         });
       }),
-    [socketRef]
+    [socketRef, enqueueServerPayload, applyMeta]
   );
 
   const isMyTurn =

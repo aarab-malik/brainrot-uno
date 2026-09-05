@@ -1,7 +1,8 @@
+import { memo } from "react";
 import CardSprite from "../components/CardSprite";
 
 /** Top card full; up to 2 cards beneath, slightly grayed. */
-export default function DiscardPileStack({ discardPile, topCard }) {
+function DiscardPileStack({ discardPile, topCard }) {
   const pile = Array.isArray(discardPile) ? discardPile : [];
   const top = topCard ?? pile[pile.length - 1] ?? null;
   if (!top) return null;
@@ -23,3 +24,5 @@ export default function DiscardPileStack({ discardPile, topCard }) {
     </div>
   );
 }
+
+export default memo(DiscardPileStack);

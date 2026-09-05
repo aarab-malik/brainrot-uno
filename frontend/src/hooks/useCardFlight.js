@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DRAW_FLY_MS,
   FLY_MS,
@@ -7,11 +7,25 @@ import {
   opponentAnchor,
 } from "../utils/cardAnimation";
 
+const SAFETY_EXTRA_MS = 1500;
+
+function prefersReducedMotion() {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  try {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch {
+    return false;
+  }
+}
+
 export function useCardFlight(tableRef) {
   const [flight, setFlight] = useState(null);
   const [isAnimating, setIsAnimating] = useState(false);
   const [hidden, setHidden] = useState(null);
-  const resolveRef = useRef(null);
+  /** id -> { resolve, timer } for every flight that has not settled yet. */
+  const pendingRef = useRef(new Map());
+  const currentIdRef = useRef(null);
+  const nextIdRef = useRef(0);
 
   const animHoldRef = useRef(0);
 
@@ -27,13 +41,44 @@ export function useCardFlight(tableRef) {
     setIsAnimating(true);
   }, []);
 
+  /** Resolve one flight's promise, release its hold, and clear the visual if it is the live one. */
+  const settleFlight = useCallback(
+    (id) => {
+      const entry = pendingRef.current.get(id);
+      if (!entry) return;
+      pendingRef.current.delete(id);
+      clearTimeout(entry.timer);
+      if (currentIdRef.current === id) {
+        currentIdRef.current = null;
+        setFlight(null);
+        setHidden(null);
+      }
+      releaseAnimHold();
+      entry.resolve();
+    },
+    [releaseAnimHold]
+  );
+
   const onFlightComplete = useCallback(() => {
+    if (currentIdRef.current != null) {
+      settleFlight(currentIdRef.current);
+      return;
+    }
     setFlight(null);
     setHidden(null);
-    releaseAnimHold();
-    resolveRef.current?.();
-    resolveRef.current = null;
-  }, [releaseAnimHold]);
+  }, [settleFlight]);
+
+  useEffect(
+    () => () => {
+      for (const id of Array.from(pendingRef.current.keys())) {
+        const entry = pendingRef.current.get(id);
+        pendingRef.current.delete(id);
+        clearTimeout(entry.timer);
+        entry.resolve();
+      }
+    },
+    []
+  );
 
   const runAnimationSequence = useCallback(
     async (fn) => {
@@ -53,6 +98,10 @@ export function useCardFlight(tableRef) {
   const runFlight = useCallback(
     (config) =>
       new Promise((resolve) => {
+        if (prefersReducedMotion()) {
+          resolve();
+          return;
+        }
         const root = tableRef.current;
         const from = measureAnchor(root, config.fromAnchor);
         const to = measureAnchor(root, config.toAnchor);
@@ -60,18 +109,28 @@ export function useCardFlight(tableRef) {
           resolve();
           return;
         }
-        resolveRef.current = resolve;
+        // A new flight supersedes any still-pending one: settle it so its awaiter never hangs.
+        for (const id of Array.from(pendingRef.current.keys())) {
+          settleFlight(id);
+        }
+        nextIdRef.current += 1;
+        const id = nextIdRef.current;
+        const duration = config.duration ?? FLY_MS;
+        const timer = setTimeout(() => settleFlight(id), duration + SAFETY_EXTRA_MS);
+        pendingRef.current.set(id, { resolve, timer });
+        currentIdRef.current = id;
         acquireAnimHold();
         if (config.hideSource) {
           setHidden(config.hideSource);
         }
         setFlight({
           ...config,
+          id,
           from,
           to,
         });
       }),
-    [tableRef, acquireAnimHold]
+    [tableRef, acquireAnimHold, settleFlight]
   );
 
   const animatePlayToDiscard = useCallback(
