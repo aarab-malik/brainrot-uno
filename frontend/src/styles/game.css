@@ -552,6 +552,104 @@
   visibility: hidden;
 }
 
+/* ---- roster strip (phones with many players) ----------------------- */
+
+.opponent-strip {
+  position: absolute;
+  top: 4.4rem;
+  left: 0;
+  right: 0;
+  z-index: 6;
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.4rem 0.75rem 0.6rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  mask-image: linear-gradient(90deg, transparent, #000 0.75rem, #000 calc(100% - 0.75rem), transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 0.75rem, #000 calc(100% - 0.75rem), transparent);
+}
+.opponent-strip::-webkit-scrollbar {
+  display: none;
+}
+/* each tile: avatar with the count badge pinned to its corner, name underneath */
+.opponent-seat.in-strip {
+  position: relative;
+  flex: 0 0 auto;
+  width: 66px;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 0.35rem 0.2rem 0.3rem;
+  border-radius: 12px;
+  background: rgba(18, 12, 14, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  scroll-margin-inline: 1rem;
+}
+.opponent-seat.in-strip.active-turn {
+  border-color: #ffe066;
+  box-shadow: 0 0 16px rgba(255, 200, 60, 0.6);
+}
+.opponent-seat.in-strip .player-tag {
+  --avatar: 36px;
+  align-items: center;
+  gap: 0.25rem;
+  width: 100%;
+}
+.opponent-seat.in-strip .player-tag-row {
+  position: relative;
+}
+.opponent-seat.in-strip .player-tag-name {
+  order: 2;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  font-size: 0.66rem;
+  text-align: center;
+  background: none;
+  border-radius: 0;
+}
+.opponent-seat.in-strip .player-tag.is-active .player-tag-name {
+  background: none;
+  color: #ffe066;
+}
+.opponent-seat.in-strip .player-count {
+  position: absolute;
+  right: -10px;
+  bottom: -6px;
+  height: 20px;
+  min-width: 20px;
+  padding: 0 4px;
+  font-size: 0.72rem;
+  border-radius: 6px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+.opponent-seat.in-strip .player-tag.is-active .player-avatar {
+  transform: none;
+  box-shadow: 0 0 0 3px rgba(255, 224, 102, 0.9);
+}
+/* the fan stays in the DOM as the flight anchor but takes no space */
+.opponent-seat.in-strip .opponent-hand-fan {
+  position: absolute;
+  inset: 0;
+  height: auto;
+  min-width: 0;
+  visibility: hidden;
+}
+.opponent-seat.in-strip .opponent-hand-fan::after,
+.opponent-seat.in-strip .opponent-fan-more {
+  display: none;
+}
+.opponent-seat.in-strip .uno-shout-opponent {
+  top: -1.6rem;
+  font-size: 0.85rem;
+}
+/* with the strip in place the table drops down and shrinks */
+.table-arena.has-strip .table {
+  top: 50%;
+  height: 46vh;
+}
+
 /* ---- uno shout ----------------------------------------------------- */
 
 .uno-shout-burst {

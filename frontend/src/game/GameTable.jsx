@@ -35,6 +35,18 @@ function currentColor(state, wildColorOnPile) {
   return top.color;
 }
 
+function useNarrowViewport(query = "(max-width: 720px)") {
+  const get = () => typeof window !== "undefined" && window.matchMedia(query).matches;
+  const [narrow, setNarrow] = useState(get);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const onChange = () => setNarrow(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [query]);
+  return narrow;
+}
+
 function DirectionRing({ direction }) {
   return (
     <svg
@@ -112,6 +124,26 @@ export default function GameTable({
   );
   const opponentAngles = getOpponentSeatAngles(opponentSlots.length);
   const radius = opponentSeatRadius(playerCount);
+  const narrow = useNarrowViewport();
+  // phones can't seat more than a few around the ellipse; past that they get a scrolling strip
+  const useStrip = narrow && opponentSlots.length > 3;
+
+  const renderOpponent = (playerIndex, idx) => (
+    <OpponentSeat
+      key={playerIndex}
+      className={useStrip ? "" : "opponent-seat-radial"}
+      style={useStrip ? undefined : seatPositionStyle(opponentAngles[idx] ?? 270, radius)}
+      name={playerNames[playerIndex] ?? `Player ${playerIndex + 1}`}
+      cardCount={handCount(state.hands[playerIndex])}
+      isActive={state.currentPlayer === playerIndex && state.winner === null}
+      playerIndex={playerIndex}
+      hidden={isOpponentHidden(playerIndex)}
+      compact={playerCount >= 6}
+      extraCompact={playerCount >= 11}
+      strip={useStrip}
+      showUnoShout={unoShout?.playerIndex === playerIndex}
+    />
+  );
 
   const activeColor = currentColor(state, wildColorOnPile);
   const glow = activeColor ? COLOR_VAR[activeColor] : "var(--yellow)";
@@ -173,7 +205,7 @@ export default function GameTable({
               +{state.pendingDraw}
             </span>
             <span>
-              Draw stack is <b>{state.pendingDraw}</b>. Stack or take it.
+              Stack or draw <b>{state.pendingDraw}</b>.
             </span>
           </div>
         ) : null}
@@ -182,7 +214,7 @@ export default function GameTable({
             <span className="notice-icon" aria-hidden="true">
               ▶
             </span>
-            <span>Your turn. Play a card or draw.</span>
+            <span>Your turn. Play or draw.</span>
           </div>
         ) : null}
       </div>
@@ -193,26 +225,17 @@ export default function GameTable({
         </button>
       </div>
 
-      <div className={`table-arena players-${playerCount}`} ref={tableRef}>
+      <div className={`table-arena players-${playerCount} ${useStrip ? "has-strip" : ""}`} ref={tableRef}>
+        {useStrip ? (
+          <div className="opponent-strip" role="list" aria-label="Other players">
+            {opponentSlots.map(renderOpponent)}
+          </div>
+        ) : null}
         <div className="table" aria-hidden={false}>
           <div className="table-ring" aria-hidden="true" />
           <div className="table-glow" aria-hidden="true" />
 
-          {opponentSlots.map((playerIndex, idx) => (
-            <OpponentSeat
-              key={playerIndex}
-              className="opponent-seat-radial"
-              style={seatPositionStyle(opponentAngles[idx] ?? 270, radius)}
-              name={playerNames[playerIndex] ?? `Player ${playerIndex + 1}`}
-              cardCount={handCount(state.hands[playerIndex])}
-              isActive={state.currentPlayer === playerIndex && state.winner === null}
-              playerIndex={playerIndex}
-              hidden={isOpponentHidden(playerIndex)}
-              compact={playerCount >= 6}
-              extraCompact={playerCount >= 11}
-              showUnoShout={unoShout?.playerIndex === playerIndex}
-            />
-          ))}
+          {useStrip ? null : opponentSlots.map(renderOpponent)}
 
           <div className="center-zone">
             <DirectionRing direction={direction} />

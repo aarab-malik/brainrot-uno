@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useEffect, useRef } from "react";
 import CardSprite from "../components/CardSprite";
 
 const MAX_VISIBLE_CARDS = 8;
@@ -37,15 +37,25 @@ function OpponentSeat({
   hidden,
   compact = false,
   extraCompact = false,
+  strip = false,
   showUnoShout = false,
 }) {
   const count = Math.max(0, cardCount);
-  const visible = Math.min(count, MAX_VISIBLE_CARDS);
+  const visible = Math.min(count, strip ? 1 : MAX_VISIBLE_CARDS);
   const extra = count - visible;
+  const rootRef = useRef(null);
+
+  // in the strip, keep whoever is playing scrolled into view
+  useEffect(() => {
+    if (strip && isActive) {
+      rootRef.current?.scrollIntoView({ inline: "center", block: "nearest", behavior: "smooth" });
+    }
+  }, [strip, isActive]);
 
   return (
     <div
-      className={`opponent-seat ${className} ${compact ? "compact" : ""} ${extraCompact ? "extra-compact" : ""} ${isActive ? "active-turn" : ""}`}
+      ref={rootRef}
+      className={`opponent-seat ${className} ${compact ? "compact" : ""} ${extraCompact ? "extra-compact" : ""} ${strip ? "in-strip" : ""} ${isActive ? "active-turn" : ""}`}
       style={style}
     >
       {showUnoShout ? (
