@@ -225,14 +225,17 @@ function CardFront({ card }) {
       {isWild ? (
         <>
           <CornerWildDot x={17} y={19} />
-          <CornerWildDot x={83} y={131} />
+          <g transform="rotate(180 50 75)">
+            <CornerWildDot x={17} y={19} />
+          </g>
         </>
       ) : (
         <>
           <text x="11" y="10" {...cornerProps}>
             {corner}
           </text>
-          <text x="89" y="140" {...cornerProps} transform="rotate(180 89 147)">
+          {/* same corner index, rotated about the card centre so it mirrors the top-left exactly */}
+          <text x="11" y="10" {...cornerProps} transform="rotate(180 50 75)">
             {corner}
           </text>
         </>
