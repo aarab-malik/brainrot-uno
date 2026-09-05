@@ -286,12 +286,13 @@ export default function BotGame({ playerCount, startingHandSize = 8, onExit, onC
       onEndTurn={handleEndTurn}
       onCardClick={handleCardClick}
       onColorChoice={handleColorChoice}
+      onColorCancel={() => setColorPicker(null)}
       onCallUno={handleCallUno}
       onNewGame={onExit ?? resetGame}
       onPlayAgain={resetGame}
       onRestartSameRules={resetGame}
       onChangeRules={onChangeRules ?? onExit}
-      newGameLabel={onExit ? "← Menu" : "New Game"}
+      newGameLabel={onExit ? "Leave table" : "New game"}
       showWinnerModal
     />
   );

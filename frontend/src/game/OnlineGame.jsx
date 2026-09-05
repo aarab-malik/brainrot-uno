@@ -423,12 +423,13 @@ export default function OnlineGame({
         onEndTurn={handleEndTurn}
         onCardClick={handleCardClick}
         onColorChoice={handleColorChoice}
+        onColorCancel={() => setColorPicker(null)}
         onCallUno={handleCallUno}
         onNewGame={handleLeave}
         onRestartSameRules={handleRestartSameRules}
         onChangeRules={handleChangeRules}
         canManageGameEnd={myPlayerId === hostId}
-        newGameLabel="← Leave"
+        newGameLabel="Leave table"
         showWinnerModal
       />
     </>

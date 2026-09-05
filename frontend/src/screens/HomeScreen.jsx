@@ -1,42 +1,70 @@
+import { MAX_PLAYERS, MIN_PLAYERS } from "@shared/gameLogic.js";
+
 export default function HomeScreen({ onPlayBots, onPlayOnline }) {
   return (
-    <div className="party-screen home-screen">
-      <div className="home-ambient" aria-hidden>
-        <span className="uno-dot uno-dot-red" />
-        <span className="uno-dot uno-dot-blue" />
-        <span className="uno-dot uno-dot-yellow" />
-        <span className="uno-dot uno-dot-green" />
-      </div>
+    <div className="home-screen">
+      <header className="home-top">
+        <span className="inks" aria-hidden="true">
+          <i style={{ background: "var(--red)" }} />
+          <i style={{ background: "var(--blue)" }} />
+          <i style={{ background: "var(--yellow)" }} />
+          <i style={{ background: "var(--green)" }} />
+        </span>
+        <span>
+          {MIN_PLAYERS}–{MAX_PLAYERS} players · one table
+        </span>
+      </header>
 
-      <div className="home-lane">
-        <header className="home-title-header">
-          <p className="party-kicker">Tabletop card room</p>
-          <h1 className="party-title">
-            Brainrot <span>UNO</span>
+      <div className="home-body">
+        <div>
+          <h1 className="home-title">
+            <span className="line overprint" data-text="Brain">
+              Brain
+            </span>
+            <span className="line overprint" data-text="rot">
+              rot
+            </span>
+            <span className="line line-uno">UNO</span>
           </h1>
-          <p className="party-credits">Created by Aarab Malik</p>
-        </header>
+          <p className="home-sub">
+            UNO with the house rules your friends argue about. Stack a +2 on a +2, shout UNO before
+            someone catches you, drop a +4 on a +4 and watch the group chat melt.
+          </p>
+        </div>
 
-        <main className="home-choices" aria-label="Choose game mode">
+        <nav className="home-choices" aria-label="Choose how to play">
           <button type="button" className="mode-card mode-card-bots" onClick={onPlayBots}>
-            <span className="mode-stripe" aria-hidden />
-            <span className="mode-number">01</span>
-            <span className="mode-label">AI Table</span>
-            <span className="mode-desc">Solo match against computer players</span>
+            <span className="ellipse ghost" aria-hidden="true" />
+            <span className="ellipse" aria-hidden="true" />
+            <span className="corner">Solo</span>
+            <span>
+              <span className="mode-label">Play the bots</span>
+              <span className="mode-desc">A quick table against up to 15 computer players.</span>
+            </span>
+            <span className="corner bottom" aria-hidden="true">
+              Solo
+            </span>
           </button>
 
           <button type="button" className="mode-card mode-card-online" onClick={onPlayOnline}>
-            <span className="mode-stripe" aria-hidden />
-            <span className="mode-number">02</span>
-            <span className="mode-label">Multiplayer</span>
-            <span className="mode-desc">Host a room or join friends online</span>
+            <span className="ellipse ghost" aria-hidden="true" />
+            <span className="ellipse" aria-hidden="true" />
+            <span className="corner">Online</span>
+            <span>
+              <span className="mode-label">Play with friends</span>
+              <span className="mode-desc">Host a room and share a six-letter code, or join one.</span>
+            </span>
+            <span className="corner bottom" aria-hidden="true">
+              Online
+            </span>
           </button>
-        </main>
-
-        <footer className="home-footer">
-          <span>2–16 players online · UNO calls · draw stacks · cozy table view</span>
-        </footer>
+        </nav>
       </div>
+
+      <footer className="home-footer">
+        <span>Made by Aarab Malik</span>
+        <span>Rules: stacking, UNO calls, custom house rules per room</span>
+      </footer>
     </div>
   );
 }

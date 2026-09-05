@@ -297,7 +297,7 @@ export default function OnlineScreen({
 
           {isHost ? (
             <div className="public-link-box">
-              <p className="public-link-label">Play over the internet (ngrok)</p>
+              <p className="public-link-label">Public link</p>
               {publicUrl ? (
                 <>
                   <div className="public-link-row">
@@ -316,7 +316,8 @@ export default function OnlineScreen({
                 </>
               ) : (
                 <p className="party-hint public-link-hint">
-                  Share link will appear here shortly.
+                  Friends on your Wi-Fi can join with the code. For friends elsewhere, start the server with an
+                  ngrok token and a link appears here.
                 </p>
               )}
             </div>
