@@ -15,6 +15,20 @@ const SCREENS = {
   ONLINE_GAME: "online-game",
 };
 
+const ACK_TIMEOUT_MS = 5000;
+const NO_RESPONSE = { ok: false, error: "No response from server" };
+
+/** Emit with an ack and a timeout; the callback always gets a response object. */
+function emitWithAck(socket, event, args, onResponse) {
+  if (!socket) {
+    onResponse(NO_RESPONSE);
+    return;
+  }
+  socket.timeout(ACK_TIMEOUT_MS).emit(event, ...args, (err, res) => {
+    onResponse(err ? NO_RESPONSE : res);
+  });
+}
+
 export default function App() {
   const [screen, setScreen] = useState(SCREENS.HOME);
   const { socket, connected, connectError } = useSocket();
@@ -81,13 +95,19 @@ export default function App() {
     const tryResume = () => {
       const session = loadUnoSession();
       if (!session) return;
-      s.emit("resume-room", session, (res) => {
+      emitWithAck(s, "resume-room", [session], (res) => {
         if (!res?.ok) {
-          clearUnoSession();
+          // Keep the session on a timeout so the next reconnect can retry.
+          if (res !== NO_RESPONSE) clearUnoSession();
           return;
         }
         setMyPlayerId(res.playerId);
-        saveUnoSession({ code: res.code, name: session.name, slot: res.slot });
+        saveUnoSession({
+          code: res.code,
+          name: session.name,
+          slot: res.slot,
+          token: res.token ?? session.token,
+        });
         if (res.playing && res.state) {
           setGamePayload({
             state: res.state,
@@ -113,11 +133,11 @@ export default function App() {
   const hostRoom = useCallback(
     (name, maxPlayers, startingHandSize) =>
       new Promise((resolve) => {
-        socket.current?.emit("host-room", { name, maxPlayers, startingHandSize }, (res) => {
+        emitWithAck(socket.current, "host-room", [{ name, maxPlayers, startingHandSize }], (res) => {
           if (res?.ok) {
             setMyPlayerId(res.playerId);
             setMySlot(res.slot);
-            saveUnoSession({ code: res.code, slot: res.slot, name });
+            saveUnoSession({ code: res.code, slot: res.slot, name, token: res.token });
             setOnlineError(null);
           } else {
             setOnlineError(res?.error ?? "Could not create room");
@@ -131,11 +151,17 @@ export default function App() {
   const joinRoom = useCallback(
     (code, name) =>
       new Promise((resolve) => {
-        socket.current?.emit("join-room", { code, name }, (res) => {
+        // Re-send a stored token so a mid-game rejoin can reclaim the same seat.
+        const stored = loadUnoSession();
+        const token =
+          stored && stored.code === code.toUpperCase() && stored.name === name.trim()
+            ? stored.token
+            : undefined;
+        emitWithAck(socket.current, "join-room", [{ code, name, token }], (res) => {
           if (res?.ok) {
             setMyPlayerId(res.playerId);
             setMySlot(res.isSpectator ? null : res.slot);
-            saveUnoSession({ code: res.code, name, slot: res.slot });
+            saveUnoSession({ code: res.code, name, slot: res.slot, token: res.token ?? token });
             setOnlineError(null);
             if (res.playing && res.state) {
               setGamePayload({
@@ -170,7 +196,7 @@ export default function App() {
   }, [socket]);
 
   const startGame = useCallback(() => {
-    socket.current?.emit("start-game", (res) => {
+    emitWithAck(socket.current, "start-game", [], (res) => {
       if (!res?.ok) setOnlineError(res?.error ?? "Could not start");
     });
   }, [socket]);
@@ -178,7 +204,7 @@ export default function App() {
   const setMaxPlayers = useCallback(
     (maxPlayers) =>
       new Promise((resolve) => {
-        socket.current?.emit("set-max-players", maxPlayers, (res) => {
+        emitWithAck(socket.current, "set-max-players", [maxPlayers], (res) => {
           if (!res?.ok) setOnlineError(res?.error ?? "Could not update room");
           resolve(res);
         });
@@ -189,7 +215,7 @@ export default function App() {
   const setStartingHandSize = useCallback(
     (handSize) =>
       new Promise((resolve) => {
-        socket.current?.emit("set-starting-hand", handSize, (res) => {
+        emitWithAck(socket.current, "set-starting-hand", [handSize], (res) => {
           if (!res?.ok) setOnlineError(res?.error ?? "Could not update hand size");
           resolve(res);
         });
@@ -200,7 +226,7 @@ export default function App() {
   const setRoomRules = useCallback(
     (rules) =>
       new Promise((resolve) => {
-        socket.current?.emit("set-room-rules", rules, (res) => {
+        emitWithAck(socket.current, "set-room-rules", [rules], (res) => {
           if (!res?.ok) setOnlineError(res?.error ?? "Could not update rules");
           resolve(res);
         });

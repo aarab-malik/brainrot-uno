@@ -21,10 +21,10 @@ export default function BotSetupScreen({ onBack, onStart }) {
 
       <div className="party-stage menu-stage">
       <div className="online-panel setup-panel">
-        <p className="party-kicker">Vs bots</p>
-        <h2 className="online-heading">How many players?</h2>
+        <p className="party-kicker">Solo table</p>
+        <h2 className="online-heading">Set the table</h2>
         <p className="setup-desc">
-          You sit at the bottom. Everyone else is a bot. Choose {MIN_PLAYERS}–{MAX_PLAYERS} players.
+          You sit at the bottom. Every other seat is a bot. {MIN_PLAYERS} to {MAX_PLAYERS} players.
         </p>
 
         <div className="player-count-picker">
@@ -88,7 +88,7 @@ export default function BotSetupScreen({ onBack, onStart }) {
           <span className="range-value">{Math.min(startingHandSize, maxHand)} cards</span>
         </label>
 
-        <div className="seat-preview" aria-hidden>
+        <div className="seat-preview" aria-hidden="true">
           {getSeatAngles(playerCount, playerCount - 1).map((deg, i) => (
             <span
               key={i}
@@ -106,7 +106,7 @@ export default function BotSetupScreen({ onBack, onStart }) {
           className="party-btn party-btn-primary party-btn-wide"
           onClick={() => onStart(playerCount, Math.min(startingHandSize, maxHand))}
         >
-          Start game
+          Deal the cards
         </button>
       </div>
       </div>

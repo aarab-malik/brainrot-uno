@@ -9,18 +9,22 @@
     "dev:public": "npm run dev",
     "dev:local": "node scripts/free-port.js 5173 && node scripts/dev.js --local-only",
     "build": "vite build --config frontend/vite.config.js",
-    "preview": "node scripts/free-port.js 5173 && node scripts/preview.js"
+    "preview": "node scripts/free-port.js 5173 && node scripts/preview.js",
+    "test": "vitest run"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/aarab-malik/brainrot-uno.git"
   },
-  "keywords": ["uno", "multiplayer", "socket.io", "react"],
+  "keywords": [
+    "uno",
+    "multiplayer",
+    "socket.io",
+    "react"
+  ],
   "author": "Aarab Malik",
   "license": "ISC",
   "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^5.1.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "socket.io": "^4.8.1",
@@ -29,6 +33,10 @@
   "devDependencies": {
     "@ngrok/ngrok": "^1.7.0",
     "@vitejs/plugin-react": "^6.0.2",
-    "vite": "^8.0.13"
+    "vite": "^8.0.13",
+    "vitest": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=20.19"
   }
 }

@@ -1,5 +1,6 @@
 import {
   ACTIONS,
+  COLORS,
   applyCallUno,
   applyDraw,
   applyPassTurn,
@@ -18,11 +19,31 @@ import {
   clampStartingHandSize,
   maxStartingHandForPlayers,
 } from "../shared/gameLogic.js";
+import { randomUUID } from "node:crypto";
 import { serializeStateForPlayer, serializeStateForSpectator } from "./state.js";
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const AWAY_FOLD_MS = 60_000;
-const FOLD_CHECK_MS = 3_000;
+
+/** Defaults; override per instance via `new RoomManager(io, timings)` or the UNO_*_MS env vars. */
+export const DEFAULT_TIMINGS = Object.freeze({
+  awayFoldMs: 60_000,
+  foldCheckMs: 3_000,
+  emptyRoomGraceMs: 5 * 60_000,
+});
+
+function envMs(name) {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+export function resolveTimings(overrides = {}) {
+  return {
+    awayFoldMs: overrides.awayFoldMs ?? envMs("UNO_AWAY_FOLD_MS") ?? DEFAULT_TIMINGS.awayFoldMs,
+    foldCheckMs: overrides.foldCheckMs ?? envMs("UNO_FOLD_CHECK_MS") ?? DEFAULT_TIMINGS.foldCheckMs,
+    emptyRoomGraceMs:
+      overrides.emptyRoomGraceMs ?? envMs("UNO_EMPTY_ROOM_GRACE_MS") ?? DEFAULT_TIMINGS.emptyRoomGraceMs,
+  };
+}
 
 function generateCode() {
   let code = "";
@@ -37,6 +58,7 @@ function makePlayer(socketId, name, slot) {
     id: socketId,
     name: name.trim() || `Player ${slot + 1}`,
     slot,
+    token: randomUUID(),
     connected: true,
     role: "player",
     folded: false,
@@ -45,19 +67,56 @@ function makePlayer(socketId, name, slot) {
 }
 
 export class RoomManager {
-  constructor(io) {
+  constructor(io, timings = {}) {
     this.io = io;
+    this.timings = resolveTimings(timings);
     this.rooms = new Map();
     this.socketToRoom = new Map();
-    this.foldCheckInterval = setInterval(() => this.checkAwayTimeouts(), FOLD_CHECK_MS);
+    this.foldCheckInterval = setInterval(() => this.checkAwayTimeouts(), this.timings.foldCheckMs);
+    this.foldCheckInterval.unref?.();
+  }
+
+  awaySeconds() {
+    return Math.max(1, Math.round(this.timings.awayFoldMs / 1000));
   }
 
   destroy() {
     clearInterval(this.foldCheckInterval);
+    for (const room of this.rooms.values()) this.cancelCleanup(room);
   }
 
   getRoom(code) {
-    return this.rooms.get(code?.toUpperCase());
+    if (typeof code !== "string") return undefined;
+    return this.rooms.get(code.toUpperCase());
+  }
+
+  hasAnyoneConnected(room) {
+    return (
+      room.players.some((p) => p.id && p.connected) || (room.spectators?.length ?? 0) > 0
+    );
+  }
+
+  cancelCleanup(room) {
+    if (room.cleanupTimer) {
+      clearTimeout(room.cleanupTimer);
+      room.cleanupTimer = null;
+    }
+  }
+
+  /** Delete the room after a grace period if nobody is connected. */
+  scheduleCleanupIfEmpty(room) {
+    if (this.hasAnyoneConnected(room)) {
+      this.cancelCleanup(room);
+      return;
+    }
+    if (room.cleanupTimer) return;
+    room.cleanupTimer = setTimeout(() => {
+      room.cleanupTimer = null;
+      if (this.rooms.get(room.code) !== room) return;
+      if (this.hasAnyoneConnected(room)) return;
+      this.rooms.delete(room.code);
+    }, this.timings.emptyRoomGraceMs);
+    room.cleanupTimer.unref?.();
   }
 
   rosterPayload(room) {
@@ -79,7 +138,7 @@ export class RoomManager {
       targetSlot: room.voteKick.targetSlot,
       targetName: target?.name ?? `Player ${room.voteKick.targetSlot + 1}`,
       votes: room.voteKick.votes.size,
-      needed: this.votesNeeded(room),
+      needed: this.votesNeeded(room, room.voteKick.targetSlot),
     };
   }
 
@@ -155,12 +214,17 @@ export class RoomManager {
     );
   }
 
-  votesNeeded(room) {
-    const n = this.connectedVoters(room).length;
-    return Math.max(1, Math.ceil(n / 2));
+  /** Strict majority of connected, non-target voters; never fewer than 2. */
+  votesNeeded(room, targetSlot) {
+    const n = this.connectedVoters(room).filter((p) => p.slot !== targetSlot).length;
+    return Math.max(2, Math.floor(n / 2) + 1);
   }
 
   hostRoom(socket, { name, maxPlayers: rawMax, startingHandSize: rawHand, rules: rawRules }, callback) {
+    if (this.socketToRoom.has(socket.id)) {
+      callback?.({ ok: false, error: "Leave your current room first." });
+      return;
+    }
     let code = generateCode();
     while (this.rooms.has(code)) code = generateCode();
 
@@ -180,6 +244,7 @@ export class RoomManager {
       gameState: null,
       originalNames: null,
       voteKick: null,
+      cleanupTimer: null,
     };
 
     const player = makePlayer(socket.id, name, 0);
@@ -188,10 +253,11 @@ export class RoomManager {
     this.socketToRoom.set(socket.id, code);
     socket.join(code);
 
-    callback({
+    callback?.({
       ok: true,
       code,
       playerId: socket.id,
+      token: player.token,
       slot: 0,
       maxPlayers,
       startingHandSize,
@@ -239,29 +305,35 @@ export class RoomManager {
     this.emitLobby(room);
   }
 
-  joinRoom(socket, code, name, callback) {
+  joinRoom(socket, code, name, callback, token = null) {
     const room = this.getRoom(code);
     if (!room) {
-      callback({ ok: false, error: "Room not found. Check the code." });
+      callback?.({ ok: false, error: "Room not found. Check the code." });
+      return;
+    }
+
+    const currentCode = this.socketToRoom.get(socket.id);
+    if (currentCode && currentCode !== room.code) {
+      callback?.({ ok: false, error: "Leave your current room first." });
       return;
     }
 
     if (room.status === "playing") {
-      this.rejoinRoom(socket, { code: room.code, name }, callback);
+      this.rejoinRoom(socket, { code: room.code, name, token }, callback);
       return;
     }
 
     if (room.players.length >= room.maxPlayers) {
-      callback({ ok: false, error: `Room is full (${room.maxPlayers} players max).` });
+      callback?.({ ok: false, error: `Room is full (${room.maxPlayers} players max).` });
       return;
     }
     if (room.players.some((p) => p.id === socket.id)) {
-      callback({ ok: false, error: "Already in this room." });
+      callback?.({ ok: false, error: "Already in this room." });
       return;
     }
     const trimmed = (name || "").trim();
     if (room.players.some((p) => p.name === trimmed)) {
-      callback({ ok: false, error: "That name is taken in this room." });
+      callback?.({ ok: false, error: "That name is taken in this room." });
       return;
     }
 
@@ -271,10 +343,18 @@ export class RoomManager {
 
     const player = makePlayer(socket.id, name, slot);
     room.players.push(player);
-    this.socketToRoom.set(socket.id, code);
+    this.socketToRoom.set(socket.id, room.code);
     socket.join(room.code);
+    this.cancelCleanup(room);
 
-    callback({ ok: true, code: room.code, playerId: socket.id, slot, maxPlayers: room.maxPlayers });
+    callback?.({
+      ok: true,
+      code: room.code,
+      playerId: socket.id,
+      token: player.token,
+      slot,
+      maxPlayers: room.maxPlayers,
+    });
     this.emitLobby(room);
   }
 
@@ -288,6 +368,7 @@ export class RoomManager {
     room.spectators.push({ id: socket.id, name: trimmed });
     this.socketToRoom.set(socket.id, room.code);
     socket.join(room.code);
+    this.cancelCleanup(room);
     return trimmed;
   }
 
@@ -302,22 +383,23 @@ export class RoomManager {
     player.role = "player";
     this.socketToRoom.set(socket.id, room.code);
     socket.join(room.code);
+    this.cancelCleanup(room);
   }
 
   canReclaimSeat(room, player) {
     if (!player || player.folded) return false;
     if (!player.awaySince) return true;
-    return Date.now() - player.awaySince < AWAY_FOLD_MS;
+    return Date.now() - player.awaySince < this.timings.awayFoldMs;
   }
 
-  rejoinRoom(socket, { code, name }, callback) {
+  rejoinRoom(socket, { code, name, token } = {}, callback) {
     const room = this.getRoom(code);
     if (!room) {
       callback?.({ ok: false, error: "Room not found." });
       return;
     }
 
-    const trimmed = (name || "").trim();
+    const trimmed = (typeof name === "string" ? name : "").trim();
     if (!trimmed) {
       callback?.({ ok: false, error: "Enter your name." });
       return;
@@ -332,8 +414,10 @@ export class RoomManager {
     const meta = this.gameMeta(room);
 
     if (existing) {
-      if (existing.folded || !this.canReclaimSeat(room, existing)) {
-        const specName = this.addSpectator(socket, room, trimmed);
+      // The seat belongs to whoever holds its reconnect token. Anyone else spectates.
+      const ownsSeat = typeof token === "string" && token.length > 0 && token === existing.token;
+      if (!ownsSeat) {
+        this.addSpectator(socket, room, trimmed);
         const view = serializeStateForSpectator(ensureActiveCurrentPlayer(room.gameState));
         callback?.({
           ok: true,
@@ -343,7 +427,25 @@ export class RoomManager {
           playing: true,
           isSpectator: true,
           state: view,
-          message: "You are spectating — your seat was given up after 60s away.",
+          message: "You are spectating — that seat belongs to another player.",
+          ...meta,
+        });
+        this.emitGameState(room);
+        return;
+      }
+
+      if (existing.folded || !this.canReclaimSeat(room, existing)) {
+        this.addSpectator(socket, room, trimmed);
+        const view = serializeStateForSpectator(ensureActiveCurrentPlayer(room.gameState));
+        callback?.({
+          ok: true,
+          code: room.code,
+          playerId: socket.id,
+          slot: null,
+          playing: true,
+          isSpectator: true,
+          state: view,
+          message: `You are spectating — your seat was given up after ${this.awaySeconds()}s away.`,
           ...meta,
         });
         this.emitGameState(room);
@@ -356,6 +458,7 @@ export class RoomManager {
         ok: true,
         code: room.code,
         playerId: socket.id,
+        token: existing.token,
         slot: existing.slot,
         playing: true,
         isSpectator: false,
@@ -398,7 +501,7 @@ export class RoomManager {
     if (player.id) {
       this.socketToRoom.delete(player.id);
       this.io.to(player.id).emit("player-away", {
-        message: "You disconnected. Rejoin with the same name and room code within 60 seconds.",
+        message: `You disconnected. Rejoin with the same name and room code within ${this.awaySeconds()} seconds.`,
       });
       player.id = null;
     }
@@ -410,6 +513,7 @@ export class RoomManager {
       const nextHost = room.players.find((p) => p.id && p.connected && !p.folded);
       if (nextHost) room.hostId = nextHost.id;
     }
+    this.scheduleCleanupIfEmpty(room);
   }
 
   kickPlayer(room, slot) {
@@ -417,11 +521,10 @@ export class RoomManager {
     if (!player || player.folded) return;
     if (player.id) {
       this.io.to(player.id).emit("player-kicked", {
-        message: "You were kicked. Rejoin with the same name and code within 60s to keep your cards.",
+        message: `You were kicked. Rejoin with the same name and code within ${this.awaySeconds()}s to keep your cards.`,
       });
     }
     this.markPlayerAway(room, player);
-    this.emitGameState(room);
   }
 
   foldAwayPlayer(room, slot) {
@@ -443,6 +546,7 @@ export class RoomManager {
       name: player.name,
       message: `${player.name}'s cards were returned to the draw pile.`,
     });
+    this.scheduleCleanupIfEmpty(room);
     this.emitGameState(room);
   }
 
@@ -450,15 +554,12 @@ export class RoomManager {
     const now = Date.now();
     for (const room of this.rooms.values()) {
       if (room.status !== "playing" || !room.gameState) continue;
-      let changed = false;
       for (const player of room.players) {
         if (player.folded || !player.awaySince) continue;
-        if (now - player.awaySince >= AWAY_FOLD_MS) {
+        if (now - player.awaySince >= this.timings.awayFoldMs) {
           this.foldAwayPlayer(room, player.slot);
-          changed = true;
         }
       }
-      if (changed) this.emitGameState(room);
     }
   }
 
@@ -492,7 +593,7 @@ export class RoomManager {
       room.voteKick.votes.add(socket.id);
     }
 
-    const needed = this.votesNeeded(room);
+    const needed = this.votesNeeded(room, targetSlot);
     if (room.voteKick.votes.size >= needed) {
       this.kickPlayer(room, targetSlot);
       room.voteKick = null;
@@ -545,7 +646,10 @@ export class RoomManager {
     if (spectator) {
       this.removeSpectatorBySocket(room, socket.id);
       if (room.players.length === 0 && (room.spectators?.length ?? 0) === 0) {
+        this.cancelCleanup(room);
         this.rooms.delete(code);
+      } else {
+        this.scheduleCleanupIfEmpty(room);
       }
       return;
     }
@@ -561,11 +665,14 @@ export class RoomManager {
     }
 
     room.players = room.players.filter((p) => p.id !== socket.id);
+    this.compactSlots(room);
 
     if (room.players.length === 0 && (room.spectators?.length ?? 0) === 0) {
+      this.cancelCleanup(room);
       this.rooms.delete(code);
       return;
     }
+    this.scheduleCleanupIfEmpty(room);
 
     if (room.hostId === socket.id) {
       room.hostId = room.players.find((p) => p.id)?.id ?? room.players[0]?.id;
@@ -574,26 +681,38 @@ export class RoomManager {
     this.emitLobby(room);
   }
 
+  /** Lobby seats must be 0..n-1 so hands[i] always belongs to the player in slot i. */
+  compactSlots(room) {
+    room.players.sort((a, b) => a.slot - b.slot);
+    room.players.forEach((p, i) => {
+      p.slot = i;
+    });
+  }
+
   startGame(socket, callback) {
     const code = this.socketToRoom.get(socket.id);
     const room = code ? this.rooms.get(code) : null;
     if (!room) {
-      callback({ ok: false, error: "Not in a room." });
+      callback?.({ ok: false, error: "Not in a room." });
       return;
     }
     if (room.hostId !== socket.id) {
-      callback({ ok: false, error: "Only the host can start." });
+      callback?.({ ok: false, error: "Only the host can start." });
+      return;
+    }
+    if (room.status !== "lobby") {
+      callback?.({ ok: false, error: "A game is already in progress." });
       return;
     }
     const count = room.players.length;
     if (count < MIN_PLAYERS) {
-      callback({ ok: false, error: `Need at least ${MIN_PLAYERS} players.` });
+      callback?.({ ok: false, error: `Need at least ${MIN_PLAYERS} players.` });
       return;
     }
 
     room.status = "playing";
     room.rules = normalizeGameRules(room.rules ?? DEFAULT_GAME_RULES);
-    room.players.sort((a, b) => a.slot - b.slot);
+    this.compactSlots(room);
     room.originalNames = room.players.map((p) => p.name);
     room.players.forEach((p) => {
       p.role = "player";
@@ -605,7 +724,7 @@ export class RoomManager {
     room.voteKick = null;
     room.gameState = makeInitialGameState(count, room.startingHandSize, room.rules);
 
-    callback({ ok: true });
+    callback?.({ ok: true });
     this.io.to(code).emit("game-started", {
       playerNames: room.players.map((p) => p.name),
     });
@@ -631,13 +750,15 @@ export class RoomManager {
     room.players.sort((a, b) => a.slot - b.slot);
     room.rules = normalizeGameRules(room.rules ?? DEFAULT_GAME_RULES);
     room.originalNames = room.players.map((p) => p.name);
+    const now = Date.now();
     room.players.forEach((p) => {
       p.role = "player";
       p.folded = false;
-      p.awaySince = null;
       p.connected = !!p.id;
+      // A seat with no socket keeps its away clock running so it folds instead of holding the turn.
+      p.awaySince = p.id ? null : now;
     });
-    room.spectators = [];
+    room.spectators = room.spectators ?? [];
     room.voteKick = null;
     room.gameState = makeInitialGameState(
       room.players.length,
@@ -672,14 +793,18 @@ export class RoomManager {
     room.gameState = null;
     room.originalNames = null;
     room.voteKick = null;
-    room.players.sort((a, b) => a.slot - b.slot);
-    room.players.forEach((p, slot) => {
-      p.slot = slot;
+    // Seats without a socket cannot leave the lobby on their own; drop them (they can re-join).
+    room.players = room.players.filter((p) => p.id);
+    this.compactSlots(room);
+    room.players.forEach((p) => {
       p.role = "player";
       p.folded = false;
       p.awaySince = null;
-      p.connected = !!p.id;
+      p.connected = true;
     });
+    if (!room.players.some((p) => p.id === room.hostId)) {
+      room.hostId = room.players[0]?.id ?? room.hostId;
+    }
     room.maxPlayers = Math.max(room.maxPlayers, room.players.length);
     room.startingHandSize = clampStartingHandSize(room.startingHandSize, room.maxPlayers);
 
@@ -758,18 +883,32 @@ export class RoomManager {
         nextState = applyPassTurn(state, slot);
       } else if (action.type === "play") {
         const { cardIndex, chosenColor } = action;
+        const hand = state.hands[slot];
+        if (
+          !Number.isInteger(cardIndex) ||
+          !Array.isArray(hand) ||
+          cardIndex < 0 ||
+          cardIndex >= hand.length
+        ) {
+          callback?.({ ok: false, error: "Invalid card." });
+          return;
+        }
+        if (chosenColor != null && !COLORS.includes(chosenColor)) {
+          callback?.({ ok: false, error: "Invalid color." });
+          return;
+        }
         const moves = getValidMoves(state, slot);
         const playMove = moves.find((m) => m.type === "play" && m.cardIndex === cardIndex);
         if (!playMove) {
           callback?.({ ok: false, error: "Invalid play." });
           return;
         }
-        const hand = state.hands[slot];
-        if (!Array.isArray(hand) || cardIndex < 0 || cardIndex >= hand.length) {
-          callback?.({ ok: false, error: "Invalid card." });
+        const card = hand[cardIndex];
+        // a stale client hand would point the index at a different card; refuse rather than guess
+        if (action.cardId != null && card.id !== action.cardId) {
+          callback?.({ ok: false, error: "Your hand is out of date. Try again." });
           return;
         }
-        const card = hand[cardIndex];
         if (
           (card.value === ACTIONS.WILD || card.value === ACTIONS.WILD_DRAW_FOUR) &&
           !chosenColor
@@ -810,6 +949,7 @@ export class RoomManager {
     if (spectator) {
       this.removeSpectatorBySocket(room, socket.id);
       this.socketToRoom.delete(socket.id);
+      this.scheduleCleanupIfEmpty(room);
       return;
     }
 

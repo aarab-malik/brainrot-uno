@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 export default function PlayerModeration({
   roster,
@@ -11,6 +11,21 @@ export default function PlayerModeration({
   onHostKick,
 }) {
   const [open, setOpen] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  // awayMs is a snapshot taken when this roster arrived; add elapsed time to keep the countdown live.
+  const rosterReceivedAt = useMemo(() => Date.now(), [roster]);
+  const anyAway = useMemo(
+    () => !!roster?.some((entry) => !entry.folded && !entry.connected && entry.awayMs != null),
+    [roster]
+  );
+
+  useEffect(() => {
+    if (!anyAway) return undefined;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [anyAway, roster]);
 
   if (!roster?.length) return null;
 
@@ -44,7 +59,10 @@ export default function PlayerModeration({
                 : entry.connected
                   ? "In"
                   : entry.awayMs != null
-                    ? `Away ${Math.max(0, 60 - Math.floor(entry.awayMs / 1000))}s`
+                    ? `Away ${Math.max(
+                        0,
+                        60 - Math.floor((entry.awayMs + Math.max(0, now - rosterReceivedAt)) / 1000)
+                      )}s`
                     : "Away";
               const voteActive = voteKick?.targetSlot === entry.slot;
               const voted = voteActive && voteKick.votes > 0;

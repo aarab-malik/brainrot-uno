@@ -1,12 +1,69 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import CardFlightOverlay from "../components/CardFlightOverlay";
-import CardSprite from "../components/CardSprite";
+import CardSprite, { cardLabel } from "../components/CardSprite";
 import WildColorDpad from "../components/WildColorDpad";
-import OpponentSeat from "./OpponentSeat";
+import OpponentSeat, { PlayerTag } from "./OpponentSeat";
 import DiscardPileStack from "./DiscardPileStack";
 import { handCount } from "../utils/hand";
-import { getDisplayTurnCycle, getPlayerCount, getTurnCycle, isPlayable, needsUnoCall } from "@shared/gameLogic.js";
-import { getOpponentSeatAngles, getOpponentSlotsInTableOrder, opponentSeatRadius, seatPositionStyle } from "../utils/seatLayout";
+import {
+  ACTIONS,
+  getEffectiveTurnDirection,
+  getPlayerCount,
+  getTurnCycle,
+  isPlayable,
+  needsUnoCall,
+} from "@shared/gameLogic.js";
+import {
+  getOpponentSeatAngles,
+  getOpponentSlotsInTableOrder,
+  opponentSeatRadius,
+  seatPositionStyle,
+} from "../utils/seatLayout";
+
+const COLOR_VAR = {
+  Red: "var(--red)",
+  Blue: "var(--blue)",
+  Green: "var(--green)",
+  Yellow: "var(--yellow)",
+};
+
+function currentColor(state, wildColorOnPile) {
+  if (wildColorOnPile) return wildColorOnPile;
+  const top = state.topCard;
+  if (!top) return null;
+  if (top.value === ACTIONS.WILD || top.value === ACTIONS.WILD_DRAW_FOUR) return top.color in COLOR_VAR ? top.color : null;
+  return top.color;
+}
+
+function useNarrowViewport(query = "(max-width: 720px)") {
+  const get = () => typeof window !== "undefined" && window.matchMedia(query).matches;
+  const [narrow, setNarrow] = useState(get);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const onChange = () => setNarrow(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [query]);
+  return narrow;
+}
+
+function DirectionRing({ direction }) {
+  return (
+    <svg
+      className={`direction-ring ${direction < 0 ? "ccw" : "cw"}`}
+      viewBox="0 0 200 200"
+      aria-hidden="true"
+    >
+      <defs>
+        <marker id="dir-arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+          <path d="M0 0 L10 5 L0 10 z" fill="currentColor" />
+        </marker>
+      </defs>
+      <path d="M 100 20 A 80 80 0 0 1 180 100" fill="none" stroke="currentColor" strokeWidth="9" markerEnd="url(#dir-arrow)" />
+      <path d="M 100 180 A 80 80 0 0 1 20 100" fill="none" stroke="currentColor" strokeWidth="9" markerEnd="url(#dir-arrow)" />
+    </svg>
+  );
+}
 
 export default function GameTable({
   state,
@@ -37,31 +94,29 @@ export default function GameTable({
   onEndTurn,
   onCardClick,
   onColorChoice,
+  onColorCancel,
   onNewGame,
   onPlayAgain,
   onRestartSameRules,
   onChangeRules,
   onCallUno,
-  newGameLabel = "New Game",
+  newGameLabel = "Leave table",
   canManageGameEnd = true,
   showWinnerModal = true,
   isSpectator = false,
 }) {
   const handlePlayAgain = onPlayAgain ?? onNewGame;
   const handleRestartSameRules = onRestartSameRules ?? handlePlayAgain;
-  const isHumanCardHidden = (index) =>
-    hidden?.type === "human-card" && hidden.index === index;
-
-  const isOpponentHidden = (playerIndex) =>
-    hidden?.type === "opponent" && hidden.playerIndex === playerIndex;
+  const isHumanCardHidden = (index) => hidden?.type === "human-card" && hidden.index === index;
+  const isOpponentHidden = (playerIndex) => hidden?.type === "opponent" && hidden.playerIndex === playerIndex;
 
   const humanHand = isSpectator ? [] : state.hands[humanPlayer];
   const humanCards = Array.isArray(humanHand) ? humanHand : [];
-  const humanName = isSpectator ? "Spectating" : (playerNames[humanPlayer] ?? "You");
+  const humanName = isSpectator ? "Spectating" : playerNames[humanPlayer] ?? "You";
 
   const playerCount = getPlayerCount(state);
-  const turnCycle = useMemo(() => getDisplayTurnCycle(state), [state]);
   const tableTurnCycle = useMemo(() => getTurnCycle(state), [state]);
+  const direction = getEffectiveTurnDirection(state);
 
   const opponentSlots = useMemo(
     () => getOpponentSlotsInTableOrder(tableTurnCycle, humanPlayer, isSpectator),
@@ -69,6 +124,29 @@ export default function GameTable({
   );
   const opponentAngles = getOpponentSeatAngles(opponentSlots.length);
   const radius = opponentSeatRadius(playerCount);
+  const narrow = useNarrowViewport();
+  // phones can't seat more than a few around the ellipse; past that they get a scrolling strip
+  const useStrip = narrow && opponentSlots.length > 3;
+
+  const renderOpponent = (playerIndex, idx) => (
+    <OpponentSeat
+      key={playerIndex}
+      className={useStrip ? "" : "opponent-seat-radial"}
+      style={useStrip ? undefined : seatPositionStyle(opponentAngles[idx] ?? 270, radius)}
+      name={playerNames[playerIndex] ?? `Player ${playerIndex + 1}`}
+      cardCount={handCount(state.hands[playerIndex])}
+      isActive={state.currentPlayer === playerIndex && state.winner === null}
+      playerIndex={playerIndex}
+      hidden={isOpponentHidden(playerIndex)}
+      compact={playerCount >= 6}
+      extraCompact={playerCount >= 11}
+      strip={useStrip}
+      showUnoShout={unoShout?.playerIndex === playerIndex}
+    />
+  );
+
+  const activeColor = currentColor(state, wildColorOnPile);
+  const glow = activeColor ? COLOR_VAR[activeColor] : "var(--yellow)";
 
   const showUnoBtn =
     !isSpectator &&
@@ -92,7 +170,7 @@ export default function GameTable({
     if (key === lastTurnKeyRef.current) return;
     lastTurnKeyRef.current = key;
     setTurnToast(true);
-    const timer = setTimeout(() => setTurnToast(false), 3500);
+    const timer = setTimeout(() => setTurnToast(false), 3000);
     return () => clearTimeout(timer);
   }, [isMyTurn, state.turnCount, state.currentPlayer, state.winner]);
 
@@ -115,174 +193,119 @@ export default function GameTable({
     if (!blockDrawPile) onDraw();
   };
 
+  const drawDisabled = (!canHumanDraw && !showPenaltyDrawBtn) || blockDrawPile;
+  const handSizeClass = humanCards.length > 12 ? "many" : humanCards.length > 8 ? "some" : "";
+
   return (
-    <div className={`page game-page ${isAnimating ? "is-animating" : ""}`}>
-      {turnToast ? (
-        <div className="game-toast game-toast-turn" role="status">
-          Your turn — play a card or draw
-        </div>
-      ) : null}
-
-      <header className="hud game-hud">
-        <div className="title-wrap">
-          <p className="game-kicker">Tabletop card room</p>
-          <h1>
-            Brainrot <span>UNO</span>
-          </h1>
-          {state.pendingDraw > 0 ? (
-            <div className="sub">
-              Draw stack: {state.pendingDraw} ({state.drawStackType})
-            </div>
-          ) : null}
-          <div className="player-name-rail" aria-label="Turn order">
-            {turnCycle.map((slot, idx) => (
-              <span key={slot} className="turn-rail-segment">
-                {idx > 0 ? (
-                  <span className="turn-rail-arrow" aria-hidden>
-                    →
-                  </span>
-                ) : null}
-                <span
-                  className={`player-name-chip ${state.currentPlayer === slot && state.winner === null ? "active" : ""} ${slot === humanPlayer ? "you" : ""}`}
-                >
-                  <span className="turn-rail-order">{idx + 1}</span>
-                  {playerNames[slot] ?? `Player ${slot + 1}`}
-                </span>
-              </span>
-            ))}
+    <div className={`game-page ${isAnimating ? "is-animating" : ""}`} style={{ "--glow": glow }}>
+      <div className="game-notices" aria-live="polite">
+        {state.pendingDraw > 0 ? (
+          <div className="notice notice-stack" role="status">
+            <span className="notice-icon" aria-hidden="true">
+              +{state.pendingDraw}
+            </span>
+            <span>
+              Stack or draw <b>{state.pendingDraw}</b>.
+            </span>
           </div>
-        </div>
-        <div className="hud-right">
-          <div className="hud-actions">
-            <button type="button" onClick={onNewGame} disabled={isAnimating}>
-              {newGameLabel}
-            </button>
+        ) : null}
+        {turnToast ? (
+          <div className="notice notice-turn" role="status">
+            <span className="notice-icon" aria-hidden="true">
+              ▶
+            </span>
+            <span>Your turn. Play or draw.</span>
           </div>
-        </div>
-      </header>
+        ) : null}
+      </div>
 
-      <main className="table-shell">
-        <div className="cozy-bedroom" aria-hidden />
-        <div className={`table-arena players-${playerCount}`} ref={tableRef}>
-          <div className="table-felt-wrap">
-            <div className="table table-felt">
-              <div className="table-rail" aria-hidden="true" />
-              <div className="table-felt-pattern" aria-hidden />
-              <div className="table-inner-ring" aria-hidden />
+      <div className="game-corner-actions">
+        <button type="button" className="game-btn game-btn-ghost" onClick={onNewGame} disabled={isAnimating}>
+          {newGameLabel}
+        </button>
+      </div>
 
-              {opponentSlots.map((playerIndex, idx) => {
-                const angle = opponentAngles[idx] ?? 270;
-                const nameOnTop = angle > 160 && angle < 380;
-                return (
-                  <OpponentSeat
-                    key={playerIndex}
-                    className="opponent-seat-radial"
-                    style={seatPositionStyle(angle, radius)}
-                    name={playerNames[playerIndex] ?? `Player ${playerIndex + 1}`}
-                    cardCount={handCount(state.hands[playerIndex])}
-                    isActive={state.currentPlayer === playerIndex && state.winner === null}
-                    playerIndex={playerIndex}
-                    hidden={isOpponentHidden(playerIndex)}
-                    compact={playerCount >= 5}
-                    extraCompact={playerCount >= 10}
-                    nameOnTop={nameOnTop}
-                    showUnoShout={unoShout?.playerIndex === playerIndex}
-                  />
-                );
-              })}
-
-              <section className="center-zone center-zone-pile">
-                <div className="discard-column">
-                  <div className="discard-pile-wrap">
-                    <DiscardPileStack discardPile={state.discardPile} topCard={state.topCard} />
-                    {wildColorOnPile ? (
-                      <div className={`wild-color-chip ${wildColorOnPile.toLowerCase()}`}>
-                        {wildColorOnPile}
-                      </div>
-                    ) : null}
-                  </div>
-                  <div className="pile-label">Center pile</div>
-                </div>
-              </section>
-            </div>
+      <div className={`table-arena players-${playerCount} ${useStrip ? "has-strip" : ""}`} ref={tableRef}>
+        {useStrip ? (
+          <div className="opponent-strip" role="list" aria-label="Other players">
+            {opponentSlots.map(renderOpponent)}
           </div>
+        ) : null}
+        <div className="table" aria-hidden={false}>
+          <div className="table-ring" aria-hidden="true" />
+          <div className="table-glow" aria-hidden="true" />
 
-          <div className={`human-dock ${isSpectator ? "is-spectator" : ""}`}>
-            {isSpectator ? (
-              <div className="spectator-hand-zone" role="status">
-                <div className="spectator-panel">
-                  <p className="spectator-title">Spectating</p>
-                  <p className="spectator-lead">You are watching this match — no cards to play.</p>
-                  <p className="spectator-hint">
-                    Rejoin with the <strong>same name</strong> and <strong>room code</strong> within 60 seconds
-                    after disconnect to reclaim your hand.
-                  </p>
-                </div>
-              </div>
-            ) : (
-            <>
-            <div className={`human-name-badge ${isMyTurn ? "your-turn" : ""}`}>
-              {humanName}
-              {isMyTurn ? <span className="turn-pip"> · Your turn</span> : null}
+          {useStrip ? null : opponentSlots.map(renderOpponent)}
+
+          <div className="center-zone">
+            <DirectionRing direction={direction} />
+            <div className="discard-pile-wrap">
+              <DiscardPileStack discardPile={state.discardPile} topCard={state.topCard} />
             </div>
-            {showEndTurnBtn ? (
-              <div className="human-end-turn-wrap">
-                <button
-                  type="button"
-                  className="end-turn-btn end-turn-btn-prominent"
-                  onClick={onEndTurn}
-                  disabled={isAnimating}
-                >
-                  End Turn
-                </button>
+            {wildColorOnPile ? (
+              <div className={`wild-color-chip ${wildColorOnPile.toLowerCase()}`} role="status">
+                {wildColorOnPile}
               </div>
             ) : null}
-            <div className="human-play-row">
-              {showUnoBtn ? (
-                <button
-                  type="button"
-                  className="uno-call-btn uno-call-btn-hand"
-                  onClick={onCallUno}
-                  disabled={isAnimating}
-                >
-                  UNO!
-                </button>
-              ) : null}
-              <div className="human-draw-stack">
-                <div
-                  className={`draw-pile human-draw-pile ${hoverDeck ? "hovered" : ""} ${
-                    (!canHumanDraw && !showPenaltyDrawBtn) || blockDrawPile ? "disabled" : ""
-                  } ${showPenaltyDrawBtn ? "penalty-mode" : ""}`}
-                  data-anchor="draw-pile"
-                  onMouseEnter={() => setHoverDeck(true)}
-                  onMouseLeave={() => setHoverDeck(false)}
-                  onClick={handleDeckClick}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") handleDeckClick();
-                  }}
-                >
-                  {hasDrawSupply ? (
-                    <CardSprite showBack className="draw-pile-card" />
-                  ) : (
-                    <div className="empty-deck">EMPTY</div>
-                  )}
-                </div>
-                {showPenaltyDrawBtn ? (
-                  <button
-                    type="button"
-                    className="penalty-draw-btn"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onPenaltyDraw?.();
-                    }}
-                    disabled={isAnimating || !canPenaltyDraw}
-                  >
-                    Draw +{penaltyDrawAmount}
-                  </button>
-                ) : null}
-                <span className="draw-count-label">Draw · {state.drawPile.length}</span>
+          </div>
+
+          {!isSpectator ? (
+            <div className="draw-zone">
+              <div
+                className={`draw-pile ${hoverDeck ? "hovered" : ""} ${drawDisabled ? "disabled" : ""} ${
+                  showPenaltyDrawBtn ? "penalty-mode" : ""
+                }`}
+                data-anchor="draw-pile"
+                onMouseEnter={() => setHoverDeck(true)}
+                onMouseLeave={() => setHoverDeck(false)}
+                onClick={handleDeckClick}
+                role="button"
+                tabIndex={0}
+                aria-label={showPenaltyDrawBtn ? `Draw ${penaltyDrawAmount} penalty cards` : "Draw a card"}
+                aria-disabled={drawDisabled}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    handleDeckClick();
+                  }
+                }}
+              >
+                {hasDrawSupply ? (
+                  <CardSprite showBack className="draw-pile-card" />
+                ) : (
+                  <div className="empty-deck">Empty</div>
+                )}
+              </div>
+              <span className="draw-count-label">{state.drawPile.length}</span>
+            </div>
+          ) : (
+            <div className="draw-zone" data-anchor="draw-pile" aria-hidden="true">
+              <div className="draw-pile disabled">
+                <CardSprite showBack className="draw-pile-card" />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className={`human-dock ${isSpectator ? "is-spectator" : ""}`}>
+          {isSpectator ? (
+            <div className="spectator-panel" role="status">
+              <p className="spectator-title">Spectating</p>
+              <p className="spectator-hint">
+                Rejoin with the same name and room code within 60 seconds of disconnecting to get your hand back.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="human-seat">
+                <PlayerTag
+                  name={humanName}
+                  count={humanCards.length}
+                  isActive={isMyTurn}
+                  playerIndex={humanPlayer}
+                  isYou
+                  className="player-tag-human"
+                />
               </div>
 
               <div className="human-hand-wrap">
@@ -291,71 +314,92 @@ export default function GameTable({
                     UNO!
                   </div>
                 ) : null}
-              <div className="human-hand" data-anchor="human-hand">
-                {humanCards.map((card, index) => {
-                  const canPlay = isMyTurn && isPlayable(card, state, humanPlayer);
-                  const playable = playableIndices.has(index) || canPlay;
-                  const hovered = hoveredCardIndex === index;
-                  const cardHidden = isHumanCardHidden(index);
-                  return (
-                    <div
-                      key={card.id}
-                      data-anchor={`human-card-${index}`}
-                      className={`human-card-wrap ${canPlay ? "can-play" : ""} ${hovered ? "hovered" : ""} ${
-                        hovered && playable ? "playable-hover" : ""
-                      } ${hovered && !playable ? "blocked-hover" : ""} ${cardHidden ? "anchor-hidden" : ""}`}
-                      onMouseEnter={() => !isAnimating && setHoveredCardIndex(index)}
-                      onMouseLeave={() => setHoveredCardIndex(null)}
-                      onClick={() => onCardClick(index)}
-                    >
-                      <CardSprite
-                        card={card}
-                        dim={hovered && !playable}
-                        selected={hovered && playable}
-                      />
-                    </div>
-                  );
-                })}
+                <div className={`human-hand ${handSizeClass}`} data-anchor="human-hand" style={{ "--n": humanCards.length }}>
+                  {humanCards.map((card, index) => {
+                    const canPlay = isMyTurn && isPlayable(card, state, humanPlayer);
+                    const playable = playableIndices.has(index) || canPlay;
+                    const hovered = hoveredCardIndex === index;
+                    const cardHidden = isHumanCardHidden(index);
+                    return (
+                      <button
+                        type="button"
+                        key={card.id}
+                        data-anchor={`human-card-${index}`}
+                        className={`human-card-wrap ${canPlay ? "can-play" : ""} ${hovered ? "hovered" : ""} ${
+                          hovered && playable ? "playable-hover" : ""
+                        } ${hovered && !playable ? "blocked-hover" : ""} ${cardHidden ? "anchor-hidden" : ""}`}
+                        style={{ "--i": index, "--n": humanCards.length }}
+                        aria-label={`${cardLabel(card)}${canPlay ? ", playable" : ""}`}
+                        aria-disabled={!canPlay}
+                        onMouseEnter={() => !isAnimating && setHoveredCardIndex(index)}
+                        onMouseLeave={() => setHoveredCardIndex(null)}
+                        onFocus={() => !isAnimating && setHoveredCardIndex(index)}
+                        onBlur={() => setHoveredCardIndex(null)}
+                        onClick={() => onCardClick(index)}
+                      >
+                        <CardSprite card={card} dim={isMyTurn && !canPlay} selected={hovered && playable} />
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
+
+              <div className="human-actions">
+                {showUnoBtn ? (
+                  <button type="button" className="game-btn game-btn-uno" onClick={onCallUno} disabled={isAnimating}>
+                    UNO!
+                  </button>
+                ) : null}
+                {showPenaltyDrawBtn ? (
+                  <button
+                    type="button"
+                    className="game-btn game-btn-danger"
+                    onClick={() => onPenaltyDraw?.()}
+                    disabled={isAnimating || !canPenaltyDraw}
+                  >
+                    Draw +{penaltyDrawAmount}
+                  </button>
+                ) : null}
+                {showEndTurnBtn ? (
+                  <button type="button" className="game-btn game-btn-primary" onClick={onEndTurn} disabled={isAnimating}>
+                    End turn
+                  </button>
+                ) : null}
               </div>
-            </div>
-            <div className="human-card-count">{humanCards.length} cards in hand</div>
             </>
-            )}
-          </div>
+          )}
         </div>
-      </main>
+      </div>
 
       <CardFlightOverlay flight={flight} tableRef={tableRef} onComplete={onFlightComplete} />
 
-      {colorPicker ? <WildColorDpad onPick={onColorChoice} /> : null}
+      {colorPicker ? <WildColorDpad onPick={onColorChoice} onCancel={onColorCancel} /> : null}
 
       {showWinnerModal && state.winner !== null ? (
         <div className="modal-backdrop winner-backdrop">
-          <div className="modal winner-modal">
-            <p className="winner-kicker">Game over</p>
-            <h2>{playerNames[state.winner] ?? `Player ${state.winner + 1}`} wins!</h2>
+          <div className="modal winner-modal" role="dialog" aria-modal="true" aria-labelledby="winner-title">
+            <p className="winner-kicker">Match end</p>
+            <h2 id="winner-title">
+              {state.winner === humanPlayer && !isSpectator
+                ? "You win."
+                : `${playerNames[state.winner] ?? `Player ${state.winner + 1}`} wins.`}
+            </h2>
             <div className="winner-actions">
               <button
                 type="button"
-                className="winner-play-again-btn winner-primary-action"
+                className="game-btn game-btn-primary"
                 onClick={handleRestartSameRules}
                 disabled={!canManageGameEnd}
               >
-                Restart Same Rules
+                Play again
               </button>
               {onChangeRules ? (
-                <button
-                  type="button"
-                  className="winner-play-again-btn winner-secondary-action"
-                  onClick={onChangeRules}
-                  disabled={!canManageGameEnd}
-                >
-                  Same Lobby, Change Rules
+                <button type="button" className="game-btn" onClick={onChangeRules} disabled={!canManageGameEnd}>
+                  Change the rules
                 </button>
               ) : null}
-              <button type="button" className="winner-menu-action" onClick={onNewGame}>
-                Main Menu
+              <button type="button" className="game-btn game-btn-ghost" onClick={onNewGame}>
+                Back to menu
               </button>
             </div>
             {!canManageGameEnd ? (

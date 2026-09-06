@@ -57,6 +57,25 @@ function rulesEqual(a, b) {
   return keys.every((key) => !!a?.[key] === !!b?.[key]);
 }
 
+const NAME_STORAGE_KEY = "uno-name";
+const PUBLIC_URL_POLL_MS = 10000;
+
+function readStoredName() {
+  try {
+    return localStorage.getItem(NAME_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function storeName(value) {
+  try {
+    localStorage.setItem(NAME_STORAGE_KEY, value);
+  } catch {
+    // Storage may be unavailable (private mode, blocked); the name still works for this session.
+  }
+}
+
 export default function OnlineScreen({
   connected,
   connectError,
@@ -74,7 +93,7 @@ export default function OnlineScreen({
   onEnterGame,
   gamePayload,
 }) {
-  const [name, setName] = useState(() => localStorage.getItem("uno-name") || "");
+  const [name, setName] = useState(readStoredName);
   const [joinCode, setJoinCode] = useState("");
   const [maxPlayers, setMaxPlayers] = useState(4);
   const [startingHandSize, setStartingHandSize] = useState(STARTING_HAND_SIZE);
@@ -114,27 +133,32 @@ export default function OnlineScreen({
   useEffect(() => {
     if (!lobby || lobby.hostId !== myPlayerId) return undefined;
     let cancelled = false;
+    let timer = null;
     const load = async () => {
       try {
         const res = await fetch("/__ngrok_url");
         const data = await res.json();
-        if (!cancelled && data.url) setPublicUrl(data.url);
+        if (!cancelled && data.url) {
+          setPublicUrl(data.url);
+          if (timer) clearInterval(timer);
+          timer = null;
+        }
       } catch {
         if (!cancelled) setPublicUrl(null);
       }
     };
     load();
-    const timer = setInterval(load, 4000);
+    timer = setInterval(load, PUBLIC_URL_POLL_MS);
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      if (timer) clearInterval(timer);
     };
   }, [lobby, myPlayerId]);
 
   async function submitHost() {
     const trimmed = name.trim();
     if (!trimmed) return;
-    localStorage.setItem("uno-name", trimmed);
+    storeName(trimmed);
     setBusy(true);
     await onHost(trimmed, maxPlayers, startingHandSize);
     setBusy(false);
@@ -144,7 +168,7 @@ export default function OnlineScreen({
     const trimmed = name.trim();
     const code = joinCode.trim().toUpperCase();
     if (!trimmed || code.length < 4) return;
-    localStorage.setItem("uno-name", trimmed);
+    storeName(trimmed);
     setBusy(true);
     await onJoin(code, trimmed);
     setBusy(false);
@@ -297,7 +321,7 @@ export default function OnlineScreen({
 
           {isHost ? (
             <div className="public-link-box">
-              <p className="public-link-label">Play over the internet (ngrok)</p>
+              <p className="public-link-label">Public link</p>
               {publicUrl ? (
                 <>
                   <div className="public-link-row">
@@ -316,7 +340,8 @@ export default function OnlineScreen({
                 </>
               ) : (
                 <p className="party-hint public-link-hint">
-                  Share link will appear here shortly.
+                  Friends on your Wi-Fi can join with the code. For friends elsewhere, start the server with an
+                  ngrok token and a link appears here.
                 </p>
               )}
             </div>
@@ -457,11 +482,7 @@ export default function OnlineScreen({
               type="button"
               className="party-btn party-btn-primary party-btn-wide"
               disabled={!canStart || busy}
-              onClick={() => {
-                setBusy(true);
-                onStartGame();
-                setBusy(false);
-              }}
+              onClick={() => onStartGame()}
             >
               {canStart
                 ? `Start with ${filled} player${filled === 1 ? "" : "s"}`

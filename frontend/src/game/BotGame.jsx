@@ -83,7 +83,9 @@ export default function BotGame({ playerCount, startingHandSize = 8, onExit, onC
   );
 
   const stateRef = useRef(state);
-  stateRef.current = state;
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   const runAnimatedDraws = useCallback(
     async (playerIndex, amount) => {
@@ -172,11 +174,26 @@ export default function BotGame({ playerCount, startingHandSize = 8, onExit, onC
         await animatePlayToDiscard(player, humanPlayer, move.cardIndex, card, color);
 
         const latest = stateRef.current;
-        if (latest.winner !== null || latest.currentPlayer !== player) return;
+        if (latest.winner !== null || latest.currentPlayer !== player) {
+          // nothing changed for this turn, so let the effect try again
+          aiTurnHandledRef.current = "";
+          return;
+        }
 
         const next = applyPlay(turnState, player, move.cardIndex, color);
         setState(next);
         stateRef.current = next;
+      } catch (err) {
+        // a thrown move must not freeze the match: clear the handled marker and fall
+        // back to a plain draw so the turn always advances
+        aiTurnHandledRef.current = "";
+        console.error("AI turn failed", err);
+        const fallback = stateRef.current;
+        if (fallback.winner === null && fallback.currentPlayer !== humanPlayer) {
+          const next = applyDraw(fallback, fallback.currentPlayer, 1);
+          setState(next);
+          stateRef.current = next;
+        }
       } finally {
         aiRunningRef.current = false;
       }
@@ -286,12 +303,13 @@ export default function BotGame({ playerCount, startingHandSize = 8, onExit, onC
       onEndTurn={handleEndTurn}
       onCardClick={handleCardClick}
       onColorChoice={handleColorChoice}
+      onColorCancel={() => setColorPicker(null)}
       onCallUno={handleCallUno}
       onNewGame={onExit ?? resetGame}
       onPlayAgain={resetGame}
       onRestartSameRules={resetGame}
       onChangeRules={onChangeRules ?? onExit}
-      newGameLabel={onExit ? "← Menu" : "New Game"}
+      newGameLabel={onExit ? "Leave table" : "New game"}
       showWinnerModal
     />
   );
