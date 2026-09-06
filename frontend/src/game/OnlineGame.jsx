@@ -28,6 +28,7 @@ export default function OnlineGame({
   const tableRef = useRef(null);
   const stateRef = useRef(initialState);
   const localDrawAnimatingRef = useRef(false);
+  const droppedPayloadRef = useRef(null);
   const payloadQueueRef = useRef(Promise.resolve());
   const applyMetaRef = useRef(null);
   const enqueueRef = useRef(null);
@@ -63,12 +64,17 @@ export default function OnlineGame({
 
       const next = payload.state;
       const prev = stateRef.current;
-      const drawInfo = getDrawAnimationInfo(prev, next);
+      // only animate a draw that is the very next turn; after a reconnect the
+      // gap can span many turns and would otherwise replay every missed card
+      const adjacentTurn = next.turnCount === (prev?.turnCount ?? -1) + 1;
+      const drawInfo = adjacentTurn ? getDrawAnimationInfo(prev, next) : null;
       const viewerSlot = isSpectator ? -1 : mySlot;
       const isLocalDrawer =
         drawInfo && !isSpectator && mySlot != null && drawInfo.playerIndex === mySlot;
 
       if (isLocalDrawer && localDrawAnimatingRef.current) {
+        // my own draw is being animated from the ack; keep the broadcast in case the ack fails
+        droppedPayloadRef.current = payload;
         return;
       }
 
@@ -255,7 +261,7 @@ export default function OnlineGame({
 
     await runAnimationSequence(async () => {
       await animatePlayToDiscard(mySlot, mySlot, index, card, null);
-      const res = await emitAction({ type: "play", cardIndex: index }, { applyState: false });
+      const res = await emitAction({ type: "play", cardIndex: index, cardId: card.id }, { applyState: false });
       if (res?.ok && res.state) setState(res.state);
     });
   }
@@ -271,21 +277,25 @@ export default function OnlineGame({
     await runAnimationSequence(async () => {
       await animatePlayToDiscard(mySlot, mySlot, cardIndex, card, color);
       const res = await emitAction(
-        { type: "play", cardIndex, chosenColor: color },
+        { type: "play", cardIndex, cardId: card.id, chosenColor: color },
         { applyState: false }
       );
       if (res?.ok && res.state) setState(res.state);
     });
   }
 
-  async function runDrawAnimation(drawCount) {
+  async function runDrawAnimation() {
+    if (localDrawAnimatingRef.current) return null;
     const beforeHand = getHandCards(state.hands[mySlot]);
     const beforeLen = beforeHand.length;
     localDrawAnimatingRef.current = true;
+    droppedPayloadRef.current = null;
     let res;
-    try {
+    // the whole round-trip is one animation hold, so a second click during the
+    // server wait is blocked by isAnimating as well as by the ref above
+    await runAnimationSequence(async () => {
       res = await emitAction({ type: "draw" }, { applyState: false });
-      if (!res?.ok || !res.state) return res;
+      if (!res?.ok || !res.state) return;
 
       const targetState = res.state;
       const finalHand = getHandCards(targetState.hands[mySlot]);
@@ -293,35 +303,38 @@ export default function OnlineGame({
 
       if (drawn.length === 0) {
         setState(targetState);
-        return res;
+        return;
       }
 
       const startPileLen = stateRef.current.drawPile.length;
       const endPileLen = targetState.drawPile.length;
 
-      await runAnimationSequence(async () => {
-        for (let i = 0; i < drawn.length; i += 1) {
-          await animateDrawFromPile(mySlot, mySlot, drawn[i]);
-          const visibleCount = Math.min(finalHand.length, beforeLen + i + 1);
-          const revealHand = finalHand.slice(0, visibleCount);
-          const pileLen = Math.max(endPileLen, startPileLen - (i + 1));
-          setState((prev) => ({
-            ...prev,
-            drawPile:
-              prev.drawPile.length > pileLen ? prev.drawPile.slice(0, pileLen) : prev.drawPile,
-            hands: prev.hands.map((hand, idx) => (idx === mySlot ? revealHand : hand)),
-          }));
-        }
-      });
+      for (let i = 0; i < drawn.length; i += 1) {
+        await animateDrawFromPile(mySlot, mySlot, drawn[i]);
+        const visibleCount = Math.min(finalHand.length, beforeLen + i + 1);
+        const revealHand = finalHand.slice(0, visibleCount);
+        const pileLen = Math.max(endPileLen, startPileLen - (i + 1));
+        setState((prev) => ({
+          ...prev,
+          drawPile:
+            prev.drawPile.length > pileLen ? prev.drawPile.slice(0, pileLen) : prev.drawPile,
+          hands: prev.hands.map((hand, idx) => (idx === mySlot ? revealHand : hand)),
+        }));
+      }
       setState(targetState);
-      return res;
-    } finally {
+    }).finally(() => {
       localDrawAnimatingRef.current = false;
-    }
+      // if the ack failed but the broadcast for this draw arrived meanwhile, apply it now
+      const dropped = droppedPayloadRef.current;
+      droppedPayloadRef.current = null;
+      if (!res?.ok && dropped) enqueueServerPayload(dropped);
+    });
+    return res;
   }
 
   async function handleDraw() {
     if (isSpectator || !isMyTurn || state.winner !== null || isAnimating) return;
+    if (localDrawAnimatingRef.current) return;
     if (state.pendingDraw > 0) {
       const amount = drawMove?.amount ?? state.pendingDraw;
       await runDrawAnimation(amount);
@@ -333,6 +346,7 @@ export default function OnlineGame({
 
   async function handlePenaltyDraw() {
     if (isSpectator || !canPenaltyDraw || isAnimating) return;
+    if (localDrawAnimatingRef.current) return;
     const amount = drawMove?.amount ?? penaltyDrawAmount;
     await runDrawAnimation(amount);
   }

@@ -82,17 +82,17 @@ export function useCardFlight(tableRef) {
 
   const runAnimationSequence = useCallback(
     async (fn) => {
+      // balanced: release only this sequence's hold, so an overlapping sequence
+      // (a queued broadcast animation during a click's server round-trip) keeps
+      // isAnimating true until it too has finished
       acquireAnimHold();
       try {
         await fn();
       } finally {
-        if (animHoldRef.current > 0) {
-          animHoldRef.current = 0;
-          setIsAnimating(false);
-        }
+        releaseAnimHold();
       }
     },
-    [acquireAnimHold]
+    [acquireAnimHold, releaseAnimHold]
   );
 
   const runFlight = useCallback(

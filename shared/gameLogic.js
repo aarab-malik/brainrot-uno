@@ -340,6 +340,7 @@ export function nextActivePlayerIndex(current, direction, state, steps = 1) {
 
 /** Shuffle a folded player's hand into the draw pile and mark the slot inactive. */
 export function foldSlotIntoDrawPile(state, slot) {
+  if (!Number.isInteger(slot) || slot < 0 || slot >= getPlayerCount(state)) return state;
   const hand = handAsArray(state.hands[slot]);
   if (hand.length === 0 && state.foldedSlots?.[slot]) return state;
 
@@ -594,7 +595,9 @@ function appendDrawMove(moves, state) {
     moves.push({ type: "draw", amount });
     return;
   }
-  if (canDrawAtLeast(state, 1)) {
+  // With nothing playable and no card left to draw, "draw" still ends the turn
+  // (applyDraw draws 0 and passes) so the table can never deadlock.
+  if (canDrawAtLeast(state, 1) || moves.length === 0) {
     moves.push({ type: "draw", amount: 1 });
   }
 }
@@ -605,7 +608,9 @@ export function getValidMoves(state, playerIndex) {
     state.unoMissed?.[playerIndex] &&
     handAsArray(state.hands[playerIndex]).length > 0
   ) {
-    return [{ type: "draw", amount: 2, unoPenalty: true }];
+    // a missed UNO adds two cards on top of any +2/+4 stack already owed
+    const stacked = state.pendingDraw > 0 ? state.pendingDraw : 0;
+    return [{ type: "draw", amount: 2 + stacked, unoPenalty: true }];
   }
 
   const hand = handAsArray(state.hands[playerIndex]);
@@ -638,6 +643,13 @@ export function applyPassTurn(state, playerIndex) {
 }
 
 export function applyDraw(state, playerIndex, amount) {
+  if (state.winner !== null || playerIndex !== state.currentPlayer) {
+    throw new Error("Not your turn.");
+  }
+  const drawMove = getValidMoves(state, playerIndex).find((m) => m.type === "draw");
+  if (!drawMove || !Number.isInteger(amount) || amount !== drawMove.amount) {
+    throw new Error("Invalid draw.");
+  }
   let base = closeUnoWindowForOtherPlayer(state, playerIndex);
   const rules = gameRules(base);
   const forceEndFromPenalty =
@@ -676,7 +688,11 @@ export function applyDraw(state, playerIndex, amount) {
     unoMissed[playerIndex] = false;
     afterDraw = { ...afterDraw, unoMissed };
   }
-  afterDraw = syncUnoStateForHandSize(afterDraw, playerIndex);
+  // Only re-evaluate UNO state when the hand actually changed; a draw from an
+  // exhausted supply must not re-flag a just-served penalty (livelock).
+  if (hands[playerIndex].length !== handAsArray(base.hands[playerIndex]).length) {
+    afterDraw = syncUnoStateForHandSize(afterDraw, playerIndex);
+  }
 
   if (forceEndFromPenalty) {
     const afterEnd = endPlayerTurn(afterDraw, playerIndex);
@@ -713,13 +729,22 @@ export function applyPlay(state, playerIndex, cardIndex, chosenColor = null) {
   if (chosenColor != null && !COLORS.includes(chosenColor)) {
     throw new Error("Invalid color.");
   }
+  if (state.winner !== null || playerIndex !== state.currentPlayer) {
+    throw new Error("Not your turn.");
+  }
+  if (!Number.isInteger(cardIndex) || !handAsArray(state.hands[playerIndex])[cardIndex]) {
+    throw new Error("Invalid card.");
+  }
+  const isValidPlay = getValidMoves(state, playerIndex).some(
+    (m) => m.type === "play" && m.cardIndex === cardIndex
+  );
+  if (!isValidPlay) {
+    throw new Error("Invalid play.");
+  }
   const working = closeUnoWindowForOtherPlayer(state, playerIndex);
   const hands = working.hands.map((h) => [...handAsArray(h)]);
   const hand = hands[playerIndex];
   const card = hand[cardIndex];
-  if (!card) {
-    throw new Error("Invalid card.");
-  }
   hand.splice(cardIndex, 1);
 
   const topCard = isWild(card) ? { ...card, color: chosenColor ?? COLORS[0] } : card;
@@ -876,9 +901,8 @@ export function chooseAIMove(state, playerIndex) {
   const wild = moves.find((m) => m.type === "play");
   if (wild) return wild;
 
-  if (canDrawAtLeast(state, 1)) {
-    return { type: "draw", amount: 1, card: hand[0] ?? null };
-  }
+  const drawMove = moves.find((m) => m.type === "draw");
+  if (drawMove) return { ...drawMove, card: hand[0] ?? null };
 
   return moves[0] ?? { type: "draw", amount: 1 };
 }

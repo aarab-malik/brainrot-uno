@@ -5,7 +5,9 @@ import {
   DEFAULT_GAME_RULES,
   applyCallUno,
   applyDraw,
+  applyPassTurn,
   applyPlay,
+  chooseAIMove,
   foldSlotIntoDrawPile,
   getValidMoves,
   makeInitialGameState,
@@ -108,7 +110,13 @@ describe("reshuffle", () => {
   it("recycles the discard pile (minus the top card) when the draw pile is empty", () => {
     const top = card("Red", 5);
     const discard = [card("Blue", 1), card("Blue", 2), card("Blue", 3), top];
-    const state = fixture({ drawPile: [], discardPile: discard, topCard: top });
+    const state = fixture({
+      drawPile: [],
+      discardPile: discard,
+      topCard: top,
+      pendingDraw: 2,
+      drawStackType: ACTIONS.DRAW_TWO,
+    });
     const next = applyDraw(state, 0, 2);
     expect(next.hands[0]).toHaveLength(4);
     expect(next.discardPile).toEqual([top]);
@@ -161,5 +169,110 @@ describe("folding", () => {
     const next = foldSlotIntoDrawPile(state, 2);
     expect(next.winner).toBe(0);
     expect(next.currentPlayer).toBe(0);
+  });
+});
+
+describe("input validation (regressions from fuzzing)", () => {
+  it("applyPlay rejects a card that is not a valid move", () => {
+    // Top is Red 5; Green 9 matches neither color nor value.
+    const state = fixture({ hands: [[card("Green", 9), card("Red", 1)], [card("Red", 3)], [card("Red", 7)]] });
+    expect(getValidMoves(state, 0).map((m) => m.cardIndex)).toEqual([1, undefined]);
+    expect(() => applyPlay(state, 0, 0)).toThrow(/invalid play/i);
+    expect(applyPlay(state, 0, 1).currentPlayer).toBe(1);
+  });
+
+  it("applyPlay rejects a play while a missed-UNO penalty is owed", () => {
+    const state = fixture({ hands: [[card("Red", 1)], [card("Red", 3)], [card("Red", 7)]], unoMissed: [true, false, false] });
+    expect(() => applyPlay(state, 0, 0)).toThrow(/invalid play/i);
+  });
+
+  it("a missed-UNO penalty adds to a stacked +2 instead of replacing it", () => {
+    const state = fixture({
+      hands: [[card("Red", 1)], [card("Red", 3)], [card("Red", 7)]],
+      unoMissed: [true, false, false],
+      pendingDraw: 4,
+      drawStackType: ACTIONS.DRAW_TWO,
+    });
+    const moves = getValidMoves(state, 0);
+    expect(moves).toEqual([{ type: "draw", amount: 6, unoPenalty: true }]);
+    const next = applyDraw(state, 0, 6);
+    expect(next.hands[0].length).toBe(7);
+    expect(next.pendingDraw).toBe(0);
+    expect(next.unoMissed[0]).toBe(false);
+  });
+
+  it("applyPlay and applyDraw reject the wrong player and bad indices without a TypeError", () => {
+    const state = fixture();
+    expect(() => applyPlay(state, 1, 0)).toThrow(/not your turn/i);
+    expect(() => applyPlay(state, 99, 0)).toThrow(/not your turn/i);
+    expect(() => applyDraw(state, 1, 1)).toThrow(/not your turn/i);
+    expect(() => applyDraw(state, NaN, 1)).toThrow(/not your turn/i);
+    for (const idx of [-1, 2, 1e9, NaN, 0.5, "0", null, undefined]) {
+      expect(() => applyPlay(state, 0, idx)).toThrow(/invalid card/i);
+    }
+    expect(applyPassTurn(state, 1)).toBe(state);
+    expect(applyPassTurn(state, 0)).toBe(state); // mayPassAfterDraw is false
+  });
+
+  it("applyDraw only accepts the amount getValidMoves offers", () => {
+    const state = fixture();
+    for (const amount of [0, -1, 2, 1e9, NaN, 0.5, "1", undefined]) {
+      expect(() => applyDraw(state, 0, amount)).toThrow(/invalid draw/i);
+    }
+    expect(applyDraw(state, 0, 1).hands[0]).toHaveLength(3);
+    const afterDraw = applyDraw(state, 0, 1);
+    // A playable card is in hand, so the player may pass but may not draw again.
+    expect(afterDraw.mayPassAfterDraw).toBe(true);
+    expect(() => applyDraw(afterDraw, 0, 1)).toThrow(/invalid draw/i);
+  });
+
+  it("folding an out-of-range slot is a no-op", () => {
+    const state = fixture();
+    for (const slot of [-1, 3, 99, NaN, "0"]) expect(foldSlotIntoDrawPile(state, slot)).toBe(state);
+  });
+});
+
+describe("exhausted supply (regressions from fuzzing)", () => {
+  /** Every card except the top is in a hand: nothing to draw. */
+  function exhausted(overrides = {}) {
+    const top = card("Red", 5);
+    return fixture({
+      drawPile: [],
+      discardPile: [top],
+      topCard: top,
+      hands: [[card("Green", 9)], [card("Blue", 3), card("Blue", 4)], [card("Red", 7)]],
+      ...overrides,
+    });
+  }
+
+  it("a player with nothing playable and nothing to draw still gets a draw move, which ends the turn", () => {
+    const state = exhausted();
+    const moves = getValidMoves(state, 0);
+    expect(moves).toEqual([{ type: "draw", amount: 1 }]);
+    const next = applyDraw(state, 0, 1);
+    expect(next.hands[0]).toHaveLength(1);
+    expect(next.currentPlayer).toBe(1);
+    expect(next.mayPassAfterDraw).toBe(false);
+  });
+
+  it("a missed-UNO penalty served from an empty supply is cleared instead of re-flagged", () => {
+    const state = exhausted({ unoMissed: [true, false, false] });
+    expect(getValidMoves(state, 0)).toEqual([{ type: "draw", amount: 2, unoPenalty: true }]);
+    const next = applyDraw(state, 0, 2);
+    expect(next.unoMissed[0]).toBe(false);
+    expect(next.currentPlayer).toBe(1);
+    // Next time round the player is not stuck in a penalty loop.
+    const again = { ...next, currentPlayer: 0 };
+    expect(getValidMoves(again, 0)).toEqual([{ type: "draw", amount: 1 }]);
+  });
+});
+
+describe("chooseAIMove honours forced draws", () => {
+  it("draws the 2-card UNO penalty rather than a single card", () => {
+    const state = fixture({ hands: [[card("Red", 1)], [card("Red", 3)], [card("Red", 7)]], unoMissed: [true, false, false] });
+    const move = chooseAIMove(state, 0);
+    expect(move.type).toBe("draw");
+    expect(move.amount).toBe(2);
+    expect(applyDraw(state, 0, move.amount).hands[0]).toHaveLength(3);
   });
 });

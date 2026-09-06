@@ -37,9 +37,9 @@ function asOptionalToken(v) {
 }
 
 function asInt(v, min, max) {
-  const n = Number(v);
-  if (!Number.isInteger(n) || n < min || n > max) bad();
-  return n;
+  // Only accept real numbers: null/booleans/"" coerce to 0 via Number(), and JSON turns NaN/Infinity into null.
+  if (typeof v !== "number" || !Number.isInteger(v) || v < min || v > max) bad();
+  return v;
 }
 
 function asOptionalInt(v, min, max) {
@@ -57,6 +57,10 @@ function asAction(v) {
   const action = { type: v.type };
   if (v.type === "play") {
     action.cardIndex = asInt(v.cardIndex, 0, 1000);
+    if (v.cardId != null) {
+      if (typeof v.cardId !== "string" || v.cardId.length > 64) bad();
+      action.cardId = v.cardId;
+    }
     if (v.chosenColor != null) {
       if (typeof v.chosenColor !== "string") bad();
       action.chosenColor = v.chosenColor;
@@ -80,8 +84,11 @@ function safe(socket, event, handler) {
   });
 }
 
-/** Attach Socket.io multiplayer to an existing HTTP server (same port as Vite). */
-export function attachGameServer(httpServer) {
+/**
+ * Attach Socket.io multiplayer to an existing HTTP server (same port as Vite).
+ * `options.timings` overrides the away-fold / empty-room timers (see RoomManager).
+ */
+export function attachGameServer(httpServer, options = {}) {
   const io = new Server(httpServer, {
     cors: {
       origin: true,
@@ -89,7 +96,7 @@ export function attachGameServer(httpServer) {
     },
   });
 
-  const rooms = new RoomManager(io);
+  const rooms = new RoomManager(io, options.timings);
 
   io.on("connection", (socket) => {
     safe(socket, "host-room", ([payload], cb) => {
